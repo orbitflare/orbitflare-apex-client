@@ -1,0 +1,8 @@
+/target/
+Cargo.lock
+.idea/
+.DS_Store
+*.json
+!package.json
+CLAUDE.md
+docs/

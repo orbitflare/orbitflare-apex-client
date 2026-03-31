@@ -1,0 +1,57 @@
+[package]
+name = "apex-sender-client"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+authors = ["OrbitFlare"]
+license = "Apache-2.0"
+description = "Submit Solana transactions to OrbitFlare apex-sender over QUIC"
+homepage = "https://orbitflare.com"
+repository = "https://github.com/orbitflare/apex-sender-client"
+keywords = ["solana", "quic", "transaction", "sender", "orbitflare"]
+categories = ["network-programming", "cryptography::cryptocurrencies"]
+readme = "README.md"
+
+[features]
+default = []
+# JSON-RPC helpers (getTipAccounts, HTTP fallback). Pulls in reqwest.
+rpc = ["dep:reqwest", "dep:serde_json", "dep:base64"]
+
+[dependencies]
+bytes = "1.10"
+hkdf = "0.12"
+quinn = { version = "0.11.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+rand = "0.8"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+sha2 = "0.10"
+solana-instruction = "3.4"
+solana-keypair = "3.1"
+solana-pubkey = "4.2"
+solana-signature = "3.4"
+solana-signer = "3"
+solana-system-interface = { version = "3.2", features = ["bincode"] }
+solana-tls-utils = { version = "4.2", features = ["agave-unstable-api"] }
+# Solana crates are pinned to the Agave 4.2.2 line the server builds with.
+# Newer point releases mix wincode 0.5 and 0.6 and do not compile together.
+solana-transaction = { version = "=4.1.6", features = ["serde", "wincode"] }
+solana-message = "=4.4.1"
+solana-short-vec = "=3.2.2"
+solana-hash = "=4.5.0"
+bincode = "1.3"
+thiserror = "2"
+tokio = { version = "1.48", features = ["rt", "net", "time", "sync", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"], optional = true }
+serde_json = { version = "1", optional = true }
+base64 = { version = "0.22", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.48", features = ["full"] }
+
+[[example]]
+name = "send_memo"
+required-features = ["rpc"]
+
+[lints.clippy]
+clone_on_ref_ptr = "deny"
+missing_const_for_fn = "deny"
+trivially_copy_pass_by_ref = "deny"
