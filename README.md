@@ -1,7 +1,7 @@
 # apex-sender-client
 
 `apex-sender-client` submits Solana transactions to OrbitFlare's apex-sender
-over QUIC. One persistent connection per PoP, authenticated by a client
+over QUIC. One persistent connection per Apex endpoint, authenticated by a client
 certificate derived from your API key, one serialized transaction per
 stream, 0-RTT resumption, and an optional admission response.
 
@@ -19,7 +19,7 @@ Enable the `rpc` feature for `getTipAccounts` and an HTTP fallback.
 
 | API | Purpose |
 |---|---|
-| `ApexSenderClient::connect(region, api_key)` | Connect to a PoP with an ephemeral local port |
+| `ApexSenderClient::connect(region, api_key)` | Connect to an Apex endpoint with an ephemeral local port |
 | `ApexSenderClient::connect_with_options(opts, api_key)` | Custom endpoint, bind address, timeouts, `mev_protect`, `max_retries` |
 | `client.send_transaction(&tx)` | Serialize a `VersionedTransaction` and send it; returns its signature |
 | `client.send_transaction_bytes(bytes)` | Send pre-serialized bytes, no allocation of the payload |
@@ -27,7 +27,7 @@ Enable the `rpc` feature for `getTipAccounts` and an HTTP fallback.
 | `client.health()`, `client.reconnects_total()` | Connection state |
 | `client.reconnect()`, `client.close()` | Lifecycle |
 | `tip_instruction(payer, tip_account, lamports)` | The SystemProgram transfer apex-sender requires |
-| `rpc::fetch_tip_accounts(region, api_key)` | The PoP's tip accounts (`rpc` feature) |
+| `rpc::fetch_tip_accounts(region, api_key)` | The Apex endpoint's tip accounts (`rpc` feature) |
 | `client_pubkey(api_key)` | The certificate key your API key derives to |
 
 ## Sending a transaction
@@ -46,6 +46,13 @@ Every transaction needs one top-level SystemProgram transfer to one of the
 published tip accounts, at or above your tier's floor (`MIN_TIP_LAMPORTS`
 for the standard tier). Put the tip account in the static account keys, not
 in a lookup table.
+
+The tip accounts are vaults of OrbitFlare's on-chain tip program
+(`rpc::TIP_PROGRAM_ID`); only the program can debit them. Your tip pays for
+routing: when the Jito path wins, the exact tip minus the base fee is bid to
+Jito in the same bundle as your transaction; when a stake path lands first,
+the tip stays with OrbitFlare. `rpc::fetch_vaults(solana_rpc_url)` reads the
+vault list from any Solana RPC without calling the sender.
 
 ## What it does not do
 

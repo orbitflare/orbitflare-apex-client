@@ -1,7 +1,7 @@
 //! `apex-sender-client` submits Solana transactions to OrbitFlare's
 //! apex-sender over QUIC.
 //!
-//! It keeps one persistent connection per PoP, authenticates with a client
+//! It keeps one persistent connection per Apex endpoint, authenticates with a client
 //! certificate derived from your API key, and sends one serialized
 //! transaction per unidirectional stream. A bidirectional variant returns a
 //! compact admission response when you want to know the transaction was
@@ -17,11 +17,11 @@
 //! # Ok(()) }
 //! ```
 
-mod tls;
-pub mod wire;
-pub mod tip;
 #[cfg(feature = "rpc")]
 pub mod rpc;
+pub mod tip;
+mod tls;
+pub mod wire;
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -36,7 +36,7 @@ use tokio::sync::Mutex;
 pub use tip::{MIN_TIP_LAMPORTS, tip_instruction};
 pub use wire::{Admission, AdmissionCode};
 
-/// Default QUIC ingress per PoP.
+/// Default QUIC ingress per Apex endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Region {
     Frankfurt,
@@ -103,7 +103,7 @@ pub struct ClientOptions {
     pub endpoint: Option<String>,
     /// Ask Apex to skip Shield-blocklisted leaders.
     pub mev_protect: bool,
-    /// Retry budget handed to Apex boxes; `None` uses their default.
+    /// Retry budget handed to validator clients; `None` uses their default.
     pub max_retries: Option<u16>,
     /// Local UDP bind address; defaults to an ephemeral port.
     pub bind_addr: Option<SocketAddr>,
@@ -137,20 +137,35 @@ pub struct ApexSenderClient {
 
 impl ApexSenderClient {
     pub async fn connect(region: Region, api_key: &str) -> Result<Self, Error> {
-        Self::connect_with_options(ClientOptions { endpoint: Some(region.quic_endpoint()), ..Default::default() }, api_key)
-            .await
+        Self::connect_with_options(
+            ClientOptions {
+                endpoint: Some(region.quic_endpoint()),
+                ..Default::default()
+            },
+            api_key,
+        )
+        .await
     }
 
     /// Connect to `options.endpoint` (`host:port`) with the certificate
     /// derived from `api_key`.
-    pub async fn connect_with_options(options: ClientOptions, api_key: &str) -> Result<Self, Error> {
-        let target = options.endpoint.clone().unwrap_or_else(|| Region::Frankfurt.quic_endpoint());
+    pub async fn connect_with_options(
+        options: ClientOptions,
+        api_key: &str,
+    ) -> Result<Self, Error> {
+        let target = options
+            .endpoint
+            .clone()
+            .unwrap_or_else(|| Region::Frankfurt.quic_endpoint());
         let remote = tokio::net::lookup_host(&target)
             .await
             .map_err(|e| Error::Resolve(e.to_string()))?
             .next()
             .ok_or_else(|| Error::Resolve(format!("{target}: no address")))?;
-        let server_name = target.rsplit_once(':').map_or(target.as_str(), |(h, _)| h).to_owned();
+        let server_name = target
+            .rsplit_once(':')
+            .map_or(target.as_str(), |(h, _)| h)
+            .to_owned();
         let keypair = tls::derive_client_keypair(api_key);
         let endpoint = tls::build_endpoint(
             options.bind_addr.unwrap_or_else(|| match remote {
@@ -192,7 +207,9 @@ impl ApexSenderClient {
 
     pub fn health(&self) -> ConnectionHealth {
         match self.connection.try_lock() {
-            Ok(g) if g.as_ref().is_some_and(|c| c.close_reason().is_none()) => ConnectionHealth::Healthy,
+            Ok(g) if g.as_ref().is_some_and(|c| c.close_reason().is_none()) => {
+                ConnectionHealth::Healthy
+            }
             _ => ConnectionHealth::Closed,
         }
     }
@@ -216,7 +233,11 @@ impl ApexSenderClient {
     ///
     /// [`send_with_response`]: ApexSenderClient::send_with_response
     pub async fn send_transaction(&self, tx: &VersionedTransaction) -> Result<Signature, Error> {
-        let signature = tx.signatures.first().copied().ok_or_else(|| Error::Serialize("no signature".into()))?;
+        let signature = tx
+            .signatures
+            .first()
+            .copied()
+            .ok_or_else(|| Error::Serialize("no signature".into()))?;
         let wire = bincode::serialize(tx).map_err(|e| Error::Serialize(e.to_string()))?;
         self.send_transaction_bytes(Bytes::from(wire)).await?;
         Ok(signature)
@@ -228,7 +249,11 @@ impl ApexSenderClient {
         if wire.len() > wire::MAX_TRANSACTION_SIZE {
             return Err(Error::TooLarge(wire.len()));
         }
-        let (header, trailer) = wire::frame_parts(wire.len(), self.options.mev_protect, self.options.max_retries);
+        let (header, trailer) = wire::frame_parts(
+            wire.len(),
+            self.options.mev_protect,
+            self.options.max_retries,
+        );
         match self.write_uni(&header, &wire, &trailer).await {
             Ok(()) => Ok(()),
             Err(_) => {
@@ -242,7 +267,13 @@ impl ApexSenderClient {
         let conn = self.get_or_connect().await?;
         tokio::time::timeout(self.options.send_timeout, async {
             let mut stream = conn.open_uni().await?;
-            stream.write_all_chunks(&mut [Bytes::copy_from_slice(header), Bytes::copy_from_slice(wire), Bytes::copy_from_slice(trailer)]).await?;
+            stream
+                .write_all_chunks(&mut [
+                    Bytes::copy_from_slice(header),
+                    Bytes::copy_from_slice(wire),
+                    Bytes::copy_from_slice(trailer),
+                ])
+                .await?;
             stream.finish().map_err(|_| Error::Closed)?;
             Ok::<(), Error>(())
         })
@@ -255,11 +286,20 @@ impl ApexSenderClient {
         if wire.len() > wire::MAX_TRANSACTION_SIZE {
             return Err(Error::TooLarge(wire.len()));
         }
-        let (header, trailer) = wire::frame_parts(wire.len(), self.options.mev_protect, self.options.max_retries);
+        let (header, trailer) = wire::frame_parts(
+            wire.len(),
+            self.options.mev_protect,
+            self.options.max_retries,
+        );
         let conn = self.get_or_connect().await?;
         tokio::time::timeout(self.options.send_timeout, async {
             let (mut send, mut recv) = conn.open_bi().await?;
-            send.write_all_chunks(&mut [Bytes::copy_from_slice(&header), wire, Bytes::copy_from_slice(&trailer)]).await?;
+            send.write_all_chunks(&mut [
+                Bytes::copy_from_slice(&header),
+                wire,
+                Bytes::copy_from_slice(&trailer),
+            ])
+            .await?;
             send.finish().map_err(|_| Error::Closed)?;
             let frame = recv.read_to_end(wire::MAX_ADMISSION_FRAME).await?;
             wire::decode_admission(&frame).ok_or(Error::BadAdmission)

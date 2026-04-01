@@ -66,7 +66,10 @@ impl AdmissionCode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Admission {
     Accepted(Signature),
-    Rejected { code: AdmissionCode, message: String },
+    Rejected {
+        code: AdmissionCode,
+        message: String,
+    },
 }
 
 impl Admission {
@@ -83,7 +86,10 @@ pub fn decode_admission(frame: &[u8]) -> Option<Admission> {
     }
     let len = u16::from_le_bytes(rest.get(..2)?.try_into().ok()?) as usize;
     let message = String::from_utf8_lossy(rest.get(2..2 + len)?).into_owned();
-    Some(Admission::Rejected { code: AdmissionCode::from_u8(code), message })
+    Some(Admission::Rejected {
+        code: AdmissionCode::from_u8(code),
+        message,
+    })
 }
 
 #[cfg(test)]
@@ -103,12 +109,18 @@ mod tests {
     fn admission_round_trip() {
         let mut ok = vec![0u8];
         ok.extend_from_slice(&[5u8; 64]);
-        assert_eq!(decode_admission(&ok), Some(Admission::Accepted(Signature::from([5u8; 64]))));
+        assert_eq!(
+            decode_admission(&ok),
+            Some(Admission::Accepted(Signature::from([5u8; 64])))
+        );
         let mut rej = vec![5u8, 3, 0];
         rej.extend_from_slice(b"low");
         assert_eq!(
             decode_admission(&rej),
-            Some(Admission::Rejected { code: AdmissionCode::BelowFloor, message: "low".into() })
+            Some(Admission::Rejected {
+                code: AdmissionCode::BelowFloor,
+                message: "low".into()
+            })
         );
         assert_eq!(decode_admission(&[]), None);
     }
