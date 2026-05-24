@@ -46,9 +46,26 @@ base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.48", features = ["full"] }
+solana-compute-budget-interface = "3"
 
 [[example]]
-name = "send_memo"
+name = "quic_send"
+required-features = ["rpc"]
+
+[[example]]
+name = "quic_send_with_response"
+required-features = ["rpc"]
+
+[[example]]
+name = "rpc_send"
+required-features = ["rpc"]
+
+[[example]]
+name = "raw_bytes"
+required-features = ["rpc"]
+
+[[example]]
+name = "throughput"
 required-features = ["rpc"]
 
 [lints.clippy]

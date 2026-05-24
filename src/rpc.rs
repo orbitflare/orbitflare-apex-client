@@ -1,5 +1,6 @@
-//! Optional JSON-RPC helpers (feature `rpc`): fetch the published tip
-//! accounts and send over HTTP when QUIC is not an option.
+//! Optional JSON-RPC helpers (feature `rpc`): the endpoint's own JSON-RPC
+//! (`sendTransaction`, `getTipAccounts`) and the two calls every sender
+//! needs from a Solana RPC: a recent blockhash and confirmation.
 
 use std::time::Duration;
 
@@ -143,4 +144,95 @@ pub async fn fetch_vaults(solana_rpc_url: &str) -> Result<Vec<Pubkey>, RpcError>
         .collect();
     vaults.sort();
     Ok(vaults)
+}
+
+/// Two calls to any Solana RPC that every sender needs: a blockhash to build
+/// with and confirmation afterwards. Apex endpoints do not answer these; use
+/// your own RPC or a public one.
+pub struct SolanaRpc {
+    http: reqwest::Client,
+    url: String,
+}
+
+impl SolanaRpc {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .expect("reqwest client"),
+            url: url.into(),
+        }
+    }
+
+    async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
+        let resp: Value = self
+            .http
+            .post(&self.url)
+            .json(&body)
+            .send()
+            .await?
+            .json()
+            .await?;
+        if let Some(err) = resp.get("error") {
+            return Err(RpcError::Rpc {
+                code: err.get("code").and_then(Value::as_i64).unwrap_or(0),
+                message: err
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
+            });
+        }
+        resp.get("result").cloned().ok_or(RpcError::BadResponse)
+    }
+
+    /// `getLatestBlockhash` at `confirmed`.
+    pub async fn latest_blockhash(&self) -> Result<solana_hash::Hash, RpcError> {
+        let v = self
+            .call("getLatestBlockhash", json!([{ "commitment": "confirmed" }]))
+            .await?;
+        v["value"]["blockhash"]
+            .as_str()
+            .and_then(|s| s.parse().ok())
+            .ok_or(RpcError::BadResponse)
+    }
+
+    /// Poll `getSignatureStatuses` until the transaction is confirmed or
+    /// `timeout` passes. Returns the slot it landed in, or `None` on timeout.
+    /// An on-chain execution error is returned as [`RpcError::Rpc`].
+    pub async fn confirm(
+        &self,
+        signature: &str,
+        timeout: Duration,
+    ) -> Result<Option<u64>, RpcError> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let v = self
+                .call(
+                    "getSignatureStatuses",
+                    json!([[signature], { "searchTransactionHistory": false }]),
+                )
+                .await?;
+            if let Some(status) = v["value"].get(0).filter(|s| !s.is_null()) {
+                if let Some(err) = status.get("err").filter(|e| !e.is_null()) {
+                    return Err(RpcError::Rpc {
+                        code: 0,
+                        message: format!("transaction failed on chain: {err}"),
+                    });
+                }
+                let confirmed = status["confirmationStatus"]
+                    .as_str()
+                    .is_some_and(|c| c == "confirmed" || c == "finalized");
+                if confirmed {
+                    return Ok(status["slot"].as_u64());
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(None);
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
 }

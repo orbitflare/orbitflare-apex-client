@@ -1,11 +1,24 @@
-//! `apex-sender-client` submits Solana transactions to OrbitFlare's
-//! apex-sender over QUIC.
+//! `apex-sender-client` submits Solana transactions to OrbitFlare's Apex
+//! endpoints.
 //!
-//! It keeps one persistent connection per Apex endpoint, authenticates with a client
-//! certificate derived from your API key, and sends one serialized
-//! transaction per unidirectional stream. A bidirectional variant returns a
-//! compact admission response when you want to know the transaction was
-//! accepted before it is raced to the leaders.
+//! Three transports, one tip rule:
+//!
+//! | Transport | Call | Returns | Use when |
+//! |---|---|---|---|
+//! | QUIC, unidirectional stream | [`ApexSenderClient::send_transaction`] | the signature, no acknowledgement | lowest latency, you track landing yourself |
+//! | QUIC, bidirectional stream | [`ApexSenderClient::send_transaction_with_response`] | accepted or a rejection code | you want the rejection reason inline |
+//! | JSON-RPC over HTTP | [`rpc::RpcClient::send_transaction`] (feature `rpc`) | the signature or a JSON-RPC error | drop-in for existing `sendTransaction` code, other languages |
+//!
+//! The client keeps one persistent QUIC connection per endpoint, authenticates
+//! with a client certificate derived from your API key (no key on the wire),
+//! sends one serialized transaction per stream and reconnects with 0-RTT when
+//! the connection drops.
+//!
+//! Every transaction must carry one top-level SystemProgram transfer to one of
+//! the published tip accounts, at or above your tier's floor
+//! ([`MIN_TIP_LAMPORTS`] for the standard tier). [`tip_instruction`] builds
+//! it; [`rpc::RpcClient::get_tip_accounts`] or [`rpc::fetch_vaults`] lists
+//! the accounts.
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), apex_sender_client::Error> {
@@ -16,6 +29,10 @@
 //! let signature = client.send_transaction(&tx).await?;
 //! # Ok(()) }
 //! ```
+//!
+//! The `examples/` directory covers each transport, raw bytes, a throughput
+//! loop and a TypeScript JSON-RPC sender; the Apex docs at https://docs.orbitflare.com/apex specifies the wire
+//! format for other languages.
 
 #[cfg(feature = "rpc")]
 pub mod rpc;
@@ -36,7 +53,8 @@ use tokio::sync::Mutex;
 pub use tip::{MIN_TIP_LAMPORTS, tip_instruction};
 pub use wire::{Admission, AdmissionCode};
 
-/// Default QUIC ingress per Apex endpoint.
+/// The Apex endpoints. Pick the one nearest to you; each routes to every
+/// validator client, Jito and the leader TPUs on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Region {
     Frankfurt,
@@ -44,10 +62,29 @@ pub enum Region {
 }
 
 impl Region {
+    pub const ALL: [Region; 2] = [Region::Frankfurt, Region::NewYork];
+
     pub const fn host(self) -> &'static str {
         match self {
             Region::Frankfurt => "fra.sender.orbitflare.com",
-            Region::NewYork => "ny.sender.orbitflare.com",
+            Region::NewYork => "nyc.sender.orbitflare.com",
+        }
+    }
+
+    /// The short code the endpoint reports itself as (`fra`, `nyc`).
+    pub const fn code(self) -> &'static str {
+        match self {
+            Region::Frankfurt => "fra",
+            Region::NewYork => "nyc",
+        }
+    }
+
+    /// Parse `fra` / `nyc` (case-insensitive).
+    pub fn parse(code: &str) -> Option<Self> {
+        match code.to_ascii_lowercase().as_str() {
+            "fra" | "frankfurt" => Some(Region::Frankfurt),
+            "nyc" | "ny" | "newyork" | "new-york" => Some(Region::NewYork),
+            _ => None,
         }
     }
 
@@ -87,6 +124,11 @@ pub enum Error {
     Serialize(String),
     #[error("malformed admission response")]
     BadAdmission,
+    #[error("rejected ({code:?}): {message}")]
+    Rejected {
+        code: AdmissionCode,
+        message: String,
+    },
     #[error("closed")]
     Closed,
 }
@@ -109,7 +151,11 @@ pub struct ClientOptions {
     pub bind_addr: Option<SocketAddr>,
     pub connect_timeout: Duration,
     pub send_timeout: Duration,
+    /// QUIC PING interval; the endpoint's idle timeout is 10 s.
     pub keep_alive: Duration,
+    /// When a send fails because the connection is gone, reconnect (0-RTT
+    /// when a session ticket is cached) and send once more.
+    pub auto_reconnect: bool,
 }
 
 impl Default for ClientOptions {
@@ -122,6 +168,7 @@ impl Default for ClientOptions {
             connect_timeout: Duration::from_secs(3),
             send_timeout: Duration::from_secs(2),
             keep_alive: Duration::from_secs(1),
+            auto_reconnect: true,
         }
     }
 }
@@ -256,10 +303,26 @@ impl ApexSenderClient {
         );
         match self.write_uni(&header, &wire, &trailer).await {
             Ok(()) => Ok(()),
-            Err(_) => {
+            Err(e) if self.options.auto_reconnect => {
+                let _ = e;
                 self.reconnect().await?;
                 self.write_uni(&header, &wire, &trailer).await
             }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Serialize, send on a bidirectional stream and turn a rejection into
+    /// [`Error::Rejected`]. Accepted means the endpoint has the transaction
+    /// and is racing it to the leaders, not that it landed.
+    pub async fn send_transaction_with_response(
+        &self,
+        tx: &VersionedTransaction,
+    ) -> Result<Signature, Error> {
+        let wire = bincode::serialize(tx).map_err(|e| Error::Serialize(e.to_string()))?;
+        match self.send_with_response(Bytes::from(wire)).await? {
+            Admission::Accepted(signature) => Ok(signature),
+            Admission::Rejected { code, message } => Err(Error::Rejected { code, message }),
         }
     }
 
@@ -291,13 +354,30 @@ impl ApexSenderClient {
             self.options.mev_protect,
             self.options.max_retries,
         );
+        match self.write_bi(&header, wire.clone(), &trailer).await {
+            Ok(a) => Ok(a),
+            Err(Error::Rejected { code, message }) => Err(Error::Rejected { code, message }),
+            Err(_) if self.options.auto_reconnect => {
+                self.reconnect().await?;
+                self.write_bi(&header, wire, &trailer).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn write_bi(
+        &self,
+        header: &[u8],
+        wire: Bytes,
+        trailer: &[u8],
+    ) -> Result<Admission, Error> {
         let conn = self.get_or_connect().await?;
         tokio::time::timeout(self.options.send_timeout, async {
             let (mut send, mut recv) = conn.open_bi().await?;
             send.write_all_chunks(&mut [
-                Bytes::copy_from_slice(&header),
+                Bytes::copy_from_slice(header),
                 wire,
-                Bytes::copy_from_slice(&trailer),
+                Bytes::copy_from_slice(trailer),
             ])
             .await?;
             send.finish().map_err(|_| Error::Closed)?;
