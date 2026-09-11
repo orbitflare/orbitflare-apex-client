@@ -20,7 +20,7 @@ import {
 } from "@solana/web3.js";
 import { readFileSync } from "node:fs";
 
-const APEX_RPC = process.env.APEX_RPC ?? "http://fra.sender.orbitflare.com:7000";
+const APEX_RPC = process.env.APEX_RPC ?? "http://fra.apex.orbitflare.com";
 const API_KEY = process.env.APEX_API_KEY ?? "";
 const SOLANA_RPC = process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
 const TIP_LAMPORTS = Number(process.env.TIP_LAMPORTS ?? 1_000_000);

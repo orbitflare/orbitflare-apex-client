@@ -58,45 +58,78 @@ pub use wire::{Admission, AdmissionCode};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Region {
     Frankfurt,
+    Amsterdam,
+    London,
     NewYork,
+    SaltLakeCity,
+    Singapore,
+    Tokyo,
+    Siauliai,
+    /// Geolocated: resolves to the nearest endpoint. Use a named region when
+    /// you want a fixed host, for a firewall rule or a pinned round trip.
+    Global,
 }
 
 impl Region {
-    pub const ALL: [Region; 2] = [Region::Frankfurt, Region::NewYork];
+    pub const ALL: [Region; 9] = [
+        Region::Frankfurt,
+        Region::Amsterdam,
+        Region::London,
+        Region::NewYork,
+        Region::SaltLakeCity,
+        Region::Singapore,
+        Region::Tokyo,
+        Region::Siauliai,
+        Region::Global,
+    ];
 
-    pub const fn host(self) -> &'static str {
-        match self {
-            Region::Frankfurt => "fra.sender.orbitflare.com",
-            Region::NewYork => "nyc.sender.orbitflare.com",
-        }
+    /// `<code>.apex.orbitflare.com`.
+    pub fn host(self) -> String {
+        format!("{}.apex.orbitflare.com", self.code())
     }
 
-    /// The short code the endpoint reports itself as (`fra`, `nyc`).
+    /// The short code the endpoint reports itself as; `global` for the
+    /// geolocated host.
     pub const fn code(self) -> &'static str {
         match self {
             Region::Frankfurt => "fra",
+            Region::Amsterdam => "ams",
+            Region::London => "lon",
             Region::NewYork => "nyc",
+            Region::SaltLakeCity => "slc",
+            Region::Singapore => "sgp",
+            Region::Tokyo => "tyo",
+            Region::Siauliai => "sqq",
+            Region::Global => "global",
         }
     }
 
-    /// Parse `fra` / `nyc` (case-insensitive).
+    /// Parse a code or city name (case-insensitive).
     pub fn parse(code: &str) -> Option<Self> {
         match code.to_ascii_lowercase().as_str() {
             "fra" | "frankfurt" => Some(Region::Frankfurt),
+            "ams" | "amsterdam" => Some(Region::Amsterdam),
+            "lon" | "london" => Some(Region::London),
             "nyc" | "ny" | "newyork" | "new-york" => Some(Region::NewYork),
+            "slc" | "saltlakecity" | "salt-lake-city" => Some(Region::SaltLakeCity),
+            "sgp" | "sin" | "singapore" => Some(Region::Singapore),
+            "tyo" | "tokyo" => Some(Region::Tokyo),
+            "sqq" | "siauliai" => Some(Region::Siauliai),
+            "global" | "auto" => Some(Region::Global),
             _ => None,
         }
     }
 
     pub const QUIC_PORT: u16 = 7001;
-    pub const RPC_PORT: u16 = 7000;
+    pub const RPC_PORT: u16 = 80;
 
     pub fn quic_endpoint(self) -> String {
         format!("{}:{}", self.host(), Self::QUIC_PORT)
     }
 
+    /// JSON-RPC and the plain HTTP routes, on port 80.
     pub fn rpc_url(self) -> String {
-        format!("http://{}:{}", self.host(), Self::RPC_PORT)
+        format!("http://{}", self.host())
     }
 }
 

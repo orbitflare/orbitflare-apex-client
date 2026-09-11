@@ -24,7 +24,7 @@ from solders.pubkey import Pubkey
 from solders.system_program import transfer, TransferParams
 from solders.transaction import Transaction
 
-APEX_RPC = os.environ.get("APEX_RPC", "http://fra.sender.orbitflare.com:7000")
+APEX_RPC = os.environ.get("APEX_RPC", "http://fra.apex.orbitflare.com")
 API_KEY = os.environ["APEX_API_KEY"]
 SOLANA_RPC = os.environ.get("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 TIP_LAMPORTS = int(os.environ.get("TIP_LAMPORTS", "1000000"))

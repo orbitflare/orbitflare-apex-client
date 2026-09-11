@@ -3,7 +3,7 @@
 //!
 //! ```
 //! APEX_API_KEY=...            your key
-//! APEX_REGION=fra|nyc         which endpoint (default fra)
+//! APEX_REGION=fra|ams|lon|nyc|slc|sgp|tyo|sqq|global   which endpoint (default fra)
 //! APEX_QUIC=host:port         override the QUIC address (optional)
 //! APEX_RPC=http://host:port   override the endpoint's JSON-RPC (optional)
 //! KEYPAIR_PATH=payer.json     fee payer and tip funder

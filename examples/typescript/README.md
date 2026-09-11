@@ -9,7 +9,7 @@ npm install
 APEX_API_KEY=... KEYPAIR_PATH=payer.json npm run send
 ```
 
-Variables: `APEX_RPC` (default `http://fra.sender.orbitflare.com:7000`),
+Variables: `APEX_RPC` (default `http://fra.apex.orbitflare.com`),
 `SOLANA_RPC_URL`, `TIP_LAMPORTS` (default 1,000,000).
 
 QUIC from Node needs a QUIC library and the client certificate derivation in

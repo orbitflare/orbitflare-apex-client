@@ -9,5 +9,5 @@ pip install solders requests
 APEX_API_KEY=... KEYPAIR_PATH=payer.json python send.py
 ```
 
-Variables: `APEX_RPC` (default `http://fra.sender.orbitflare.com:7000`),
+Variables: `APEX_RPC` (default `http://fra.apex.orbitflare.com`),
 `SOLANA_RPC_URL`, `TIP_LAMPORTS` (default 1,000,000).

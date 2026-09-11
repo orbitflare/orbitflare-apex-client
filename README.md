@@ -53,15 +53,27 @@ QUIC path alone has no HTTP dependency.
 
 ## Endpoints
 
-| Region | Host | QUIC | JSON-RPC |
-|---|---|---|---|
-| Frankfurt | `fra.sender.orbitflare.com` | UDP 7001 | TCP 7000 |
-| New York | `nyc.sender.orbitflare.com` | UDP 7001 | TCP 7000 |
+| Region | Code | Host |
+|---|---|---|
+| 🇩🇪 Frankfurt | `fra` | `fra.apex.orbitflare.com` |
+| 🇳🇱 Amsterdam | `ams` | `ams.apex.orbitflare.com` |
+| 🇬🇧 London | `lon` | `lon.apex.orbitflare.com` |
+| 🇺🇸 New York | `nyc` | `nyc.apex.orbitflare.com` |
+| 🇺🇸 Salt Lake City | `slc` | `slc.apex.orbitflare.com` |
+| 🇸🇬 Singapore | `sgp` | `sgp.apex.orbitflare.com` |
+| 🇯🇵 Tokyo | `tyo` | `tyo.apex.orbitflare.com` |
+| 🇱🇹 Siauliai | `sqq` | `sqq.apex.orbitflare.com` |
+| 🌐 Global (nearest) | `global` | `global.apex.orbitflare.com` |
 
-Pick the endpoint nearest to you. Both know the full leader schedule and
-route each transaction to the validator clients nearest the upcoming
-leaders, so the choice affects your round trip, not the landing path.
-`Region::parse("fra")` and `Region::code()` map to and from the short codes.
+JSON-RPC and the plain HTTP routes are on port 80; QUIC is UDP 7001.
+
+Pick the endpoint nearest to you, or `Region::Global`, which resolves to
+the nearest one. Every endpoint knows the full leader schedule and routes
+each transaction to the validator clients nearest the upcoming leaders, so
+the choice affects your round trip, not the landing path. Use a named
+region when you need a fixed host, for a firewall rule or a pinned round
+trip. `Region::parse("fra")` and `Region::code()` map to and from the short
+codes.
 
 ## Transports
 
@@ -104,7 +116,8 @@ both.
 ## Examples
 
 All examples read `APEX_API_KEY`, `KEYPAIR_PATH` (default `payer.json`),
-`SOLANA_RPC_URL`, optional `APEX_REGION` (`fra` or `nyc`), `APEX_QUIC`,
+`SOLANA_RPC_URL`, optional `APEX_REGION` (a code from the table above),
+`APEX_QUIC`,
 `APEX_RPC`, `TIP_LAMPORTS` and `APEX_TX_VERSION` (`legacy` or `v1`). Each
 sends a tipped memo and reports the slot it landed in.
 
