@@ -11,8 +11,14 @@ stake-weighted validator clients, Jito bundles and the leader TPUs at once.
   accepted/rejected answer.
 - **JSON-RPC**: Solana's `sendTransaction` with an `x-api-key` header, for
   existing code and other languages.
+- **Plain HTTP**: `POST /send-bin` with the raw transaction bytes (no
+  base64, no JSON), `POST /send-batch` for up to 16 at once, `GET /ping`
+  to keep a connection warm, CORS on everything for browsers.
 - **Raw bytes**: hand the client pre-serialized transaction bytes and nothing
   re-encodes them.
+
+The tip is an instruction inside your transaction, so it is only paid when
+the transaction lands. No landing, no cost.
 
 ## Quick start
 
@@ -59,12 +65,12 @@ leaders, so the choice affects your round trip, not the landing path.
 
 ## Transports
 
-| | QUIC uni | QUIC bidi | JSON-RPC |
-|---|---|---|---|
-| Call | `send_transaction`, `send_transaction_bytes` | `send_transaction_with_response`, `send_with_response` | `rpc::RpcClient::send_transaction` |
-| Returns | the signature; nothing is read back | accepted, or a rejection code and message | the signature, or a JSON-RPC error |
-| Cost per send | one stream on a warm connection | one stream plus one round trip | an HTTP request on a keep-alive connection |
-| Best for | bots on a persistent connection | integration and debugging, batch tools that want the reason inline | drop-in for `sendTransaction` code, TypeScript and other languages |
+| | QUIC uni | QUIC bidi | HTTP binary | JSON-RPC |
+|---|---|---|---|---|
+| Call | `send_transaction`, `send_transaction_bytes` | `send_transaction_with_response`, `send_with_response` | `rpc::RpcClient::send_transaction_binary`, `send_batch` | `rpc::RpcClient::send_transaction` |
+| Returns | the signature; nothing is read back | accepted, or a rejection code and message | the signature, or a JSON error with a label | the signature, or a JSON-RPC error |
+| Cost per send | one stream on a warm connection | one stream plus one round trip | an HTTP request, raw bytes, no encoding | an HTTP request, base64 in JSON |
+| Best for | bots on a persistent connection | integration and debugging, batch tools that want the reason inline | any language over HTTP, batches, browsers | drop-in for `sendTransaction` code |
 
 The transport does not change priority or routing; the tip does.
 
@@ -111,6 +117,7 @@ sends a tipped memo and reports the slot it landed in.
 | `throughput` | One warm connection, N concurrent sends, per-send p50 and p99, landing count |
 | `client_pubkey` | The certificate key an API key derives to, to compare with your dashboard |
 | `typescript/send_rpc.ts` | The JSON-RPC path from `@solana/web3.js`, no client library needed |
+| `python/send.py` | The binary route and JSON-RPC from Python with `solders` |
 
 ```
 APEX_API_KEY=... KEYPAIR_PATH=payer.json SOLANA_RPC_URL=https://... \
@@ -140,7 +147,7 @@ CU on a short memo); size the limit to your own instructions.
 | `health()`, `reconnects_total()`, `remote_addr()` | Connection state |
 | `reconnect()`, `close()` | Lifecycle |
 | `tip_instruction(payer, tip_account, lamports)`, `tip::pick_tip_account(&accounts)` | The tip |
-| `rpc::RpcClient` | The endpoint's JSON-RPC: `get_tip_accounts`, `send_transaction` |
+| `rpc::RpcClient` | The endpoint over HTTP: `get_tip_accounts`, `send_transaction` (JSON-RPC), `send_transaction_binary`, `send_batch`, `ping` |
 | `rpc::SolanaRpc` | Any Solana RPC: `latest_blockhash`, `confirm(signature, timeout)` |
 | `rpc::fetch_vaults(solana_rpc_url)` | Tip accounts straight from the tip program |
 | `client_pubkey(api_key)` | The certificate key your API key derives to, as shown on your dashboard |
@@ -156,6 +163,12 @@ CU on a short memo); size the limit to your own instructions.
 | Idle timeout | 10 s on the endpoint; the client pings every `keep_alive` (1 s) |
 | Rate limit | per key and tier, `AdmissionCode::RateLimited` or JSON-RPC `-32029` |
 | Connections | one client per process and endpoint is enough; streams multiplex on it |
+
+Plain HTTP routes reply with JSON. Accepted: `{"signature": "..."}` and
+200. Rejected: `{"error": "<label>", "message": "..."}` with 401
+(unauthorized), 429 (rate limited), 400 (invalid transaction, tip or size)
+or 503 (busy). `/send-batch` replies 200 with `attempted`, `accepted`,
+`rejected` and one result per frame.
 
 Admission codes on the bidirectional stream: `Ok`, `Unauthorized`,
 `RateLimited`, `Invalid` (the message says what failed sanitization),

@@ -99,6 +99,146 @@ impl RpcClient {
     }
 }
 
+/// One frame of a `/send-batch` reply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BatchItem {
+    Accepted(String),
+    Rejected { error: String, message: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchResult {
+    pub attempted: usize,
+    pub accepted: usize,
+    pub rejected: usize,
+    pub results: Vec<BatchItem>,
+}
+
+/// Up to this many transactions per `send_batch`.
+pub const MAX_BATCH: usize = 16;
+
+impl RpcClient {
+    fn plain_url(&self, route: &str, mev_protect: bool, max_retries: Option<u16>) -> String {
+        let mut url = format!(
+            "{}{route}?mev_protect={}",
+            self.url.trim_end_matches('/'),
+            u8::from(mev_protect)
+        );
+        if let Some(n) = max_retries {
+            url.push_str(&format!("&max_retries={n}"));
+        }
+        url
+    }
+
+    fn plain_error(v: &Value) -> RpcError {
+        RpcError::Rpc {
+            code: 0,
+            message: format!(
+                "{}: {}",
+                v["error"].as_str().unwrap_or("error"),
+                v["message"].as_str().unwrap_or("")
+            ),
+        }
+    }
+
+    /// `POST /send-bin`: the raw transaction bytes, no base64 and no JSON on
+    /// the way in. The cheapest HTTP path. Returns the signature.
+    pub async fn send_transaction_binary(
+        &self,
+        wire: &[u8],
+        mev_protect: bool,
+        max_retries: Option<u16>,
+    ) -> Result<String, RpcError> {
+        let resp = self
+            .http
+            .post(self.plain_url("/send-bin", mev_protect, max_retries))
+            .header("x-api-key", &self.api_key)
+            .header("content-type", "application/octet-stream")
+            .body(wire.to_vec())
+            .send()
+            .await?;
+        let v: Value = resp.json().await?;
+        match v["signature"].as_str() {
+            Some(sig) => Ok(sig.to_owned()),
+            None => Err(Self::plain_error(&v)),
+        }
+    }
+
+    /// `POST /send-batch`: up to [`MAX_BATCH`] transactions in one request,
+    /// each framed as a big-endian u16 length and the bytes. Every
+    /// transaction is admitted on its own; the reply says which were.
+    pub async fn send_batch(
+        &self,
+        wires: &[&[u8]],
+        mev_protect: bool,
+        max_retries: Option<u16>,
+    ) -> Result<BatchResult, RpcError> {
+        let body = encode_batch(wires).ok_or(RpcError::BadResponse)?;
+        let resp = self
+            .http
+            .post(self.plain_url("/send-batch", mev_protect, max_retries))
+            .header("x-api-key", &self.api_key)
+            .header("content-type", "application/octet-stream")
+            .body(body)
+            .send()
+            .await?;
+        let v: Value = resp.json().await?;
+        let Some(results) = v["results"].as_array() else {
+            return Err(Self::plain_error(&v));
+        };
+        Ok(BatchResult {
+            attempted: v["attempted"].as_u64().unwrap_or(0) as usize,
+            accepted: v["accepted"].as_u64().unwrap_or(0) as usize,
+            rejected: v["rejected"].as_u64().unwrap_or(0) as usize,
+            results: results
+                .iter()
+                .map(|r| match r["signature"].as_str() {
+                    Some(sig) => BatchItem::Accepted(sig.to_owned()),
+                    None => BatchItem::Rejected {
+                        error: r["error"].as_str().unwrap_or("error").to_owned(),
+                        message: r["message"].as_str().unwrap_or("").to_owned(),
+                    },
+                })
+                .collect(),
+        })
+    }
+
+    /// `GET /ping`: warms the HTTP connection and proves the endpoint is up.
+    /// Needs no key.
+    pub async fn ping(&self) -> Result<(), RpcError> {
+        let text = self
+            .http
+            .get(format!("{}/ping", self.url.trim_end_matches('/')))
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        if text == "pong" {
+            Ok(())
+        } else {
+            Err(RpcError::BadResponse)
+        }
+    }
+}
+
+/// Frame transactions for `/send-batch`: `u16 BE length + bytes` each.
+/// `None` when empty, over [`MAX_BATCH`], or a transaction exceeds 4096 bytes.
+pub fn encode_batch(wires: &[&[u8]]) -> Option<Vec<u8>> {
+    if wires.is_empty() || wires.len() > MAX_BATCH {
+        return None;
+    }
+    let mut out = Vec::with_capacity(wires.iter().map(|w| w.len() + 2).sum());
+    for w in wires {
+        if w.is_empty() || w.len() > crate::wire::MAX_TRANSACTION_SIZE {
+            return None;
+        }
+        out.extend_from_slice(&(w.len() as u16).to_be_bytes());
+        out.extend_from_slice(w);
+    }
+    Some(out)
+}
+
 /// Convenience: fetch the tip accounts for a region.
 pub async fn fetch_tip_accounts(region: Region, api_key: &str) -> Result<Vec<Pubkey>, RpcError> {
     RpcClient::new(region, api_key).get_tip_accounts().await
@@ -234,5 +374,19 @@ impl SolanaRpc {
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn batch_frames_are_length_prefixed_big_endian() {
+        let b = encode_batch(&[&[1, 2, 3], &[9]]).unwrap();
+        assert_eq!(b, vec![0, 3, 1, 2, 3, 0, 1, 9]);
+        assert!(encode_batch(&[]).is_none());
+        let too_many: Vec<&[u8]> = vec![&[1u8][..]; MAX_BATCH + 1];
+        assert!(encode_batch(&too_many).is_none());
     }
 }
