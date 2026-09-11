@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let signature = tx.signatures[0];
     // Wherever your bytes come from: this is bincode of a VersionedTransaction,
     // the same encoding `solana-transaction` and every wallet produce.
-    let wire_bytes: Bytes = bincode::serialize(&tx)?.into();
+    let wire_bytes: Bytes = apex_sender_client::serialize_transaction(&tx)?.into();
 
     let packet = wire::encode_packet(&wire_bytes, false, None);
     println!(

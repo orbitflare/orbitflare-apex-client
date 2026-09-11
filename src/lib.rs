@@ -118,7 +118,7 @@ pub enum Error {
     Read(#[from] quinn::ReadToEndError),
     #[error("timed out")]
     Timeout,
-    #[error("transaction too large: {0} bytes (max 1232)")]
+    #[error("transaction too large: {0} bytes (max 4096; legacy and v0 max 1232)")]
     TooLarge(usize),
     #[error("serialize transaction: {0}")]
     Serialize(String),
@@ -285,7 +285,7 @@ impl ApexSenderClient {
             .first()
             .copied()
             .ok_or_else(|| Error::Serialize("no signature".into()))?;
-        let wire = bincode::serialize(tx).map_err(|e| Error::Serialize(e.to_string()))?;
+        let wire = serialize_transaction(tx)?;
         self.send_transaction_bytes(Bytes::from(wire)).await?;
         Ok(signature)
     }
@@ -319,7 +319,7 @@ impl ApexSenderClient {
         &self,
         tx: &VersionedTransaction,
     ) -> Result<Signature, Error> {
-        let wire = bincode::serialize(tx).map_err(|e| Error::Serialize(e.to_string()))?;
+        let wire = serialize_transaction(tx)?;
         match self.send_with_response(Bytes::from(wire)).await? {
             Admission::Accepted(signature) => Ok(signature),
             Admission::Rejected { code, message } => Err(Error::Rejected { code, message }),
@@ -393,9 +393,64 @@ impl ApexSenderClient {
     }
 }
 
+/// Serialize a transaction to its wire bytes. Uses the canonical encoding,
+/// which is byte-identical to bincode for legacy and v0 and the only correct
+/// one for v1 (SIMD-0385), whose envelope starts with the version prefix.
+pub fn serialize_transaction(tx: &VersionedTransaction) -> Result<Vec<u8>, Error> {
+    wincode::serialize(tx).map_err(|e| Error::Serialize(e.to_string()))
+}
+
 /// The ed25519 public key this API key's client certificate carries. What
 /// the server stores at issuance.
 pub fn client_pubkey(api_key: &str) -> solana_pubkey::Pubkey {
     use solana_signer::Signer;
     tls::derive_client_keypair(api_key).pubkey()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use solana_instruction::Instruction;
+    use solana_keypair::Keypair;
+    use solana_message::{Message, VersionedMessage, v1};
+    use solana_pubkey::Pubkey;
+    use solana_signer::Signer;
+    use solana_transaction::Transaction;
+
+    #[test]
+    fn legacy_serialization_matches_bincode() {
+        let payer = Keypair::new();
+        let ix = Instruction::new_with_bytes(Pubkey::new_unique(), &[1, 2, 3], vec![]);
+        let tx = VersionedTransaction::from(Transaction::new_signed_with_payer(
+            &[ix],
+            Some(&payer.pubkey()),
+            &[&payer],
+            solana_hash::Hash::new_from_array([7u8; 32]),
+        ));
+        assert_eq!(
+            serialize_transaction(&tx).unwrap(),
+            bincode::serialize(&tx).unwrap()
+        );
+    }
+
+    #[test]
+    fn v1_serialization_starts_with_the_version_prefix_and_fits_4096() {
+        let payer = Keypair::new();
+        let big = Instruction::new_with_bytes(Pubkey::new_unique(), &vec![9u8; 3_000], vec![]);
+        let msg = v1::Message::try_compile(
+            &payer.pubkey(),
+            &[big],
+            solana_hash::Hash::new_from_array([7u8; 32]),
+        )
+        .unwrap();
+        let tx = VersionedTransaction::try_new(VersionedMessage::V1(msg), &[&payer]).unwrap();
+        let wire = serialize_transaction(&tx).unwrap();
+        assert_eq!(wire[0], v1::V1_PREFIX);
+        assert!(
+            wire.len() > 1232 && wire.len() <= wire::MAX_TRANSACTION_SIZE,
+            "{}",
+            wire.len()
+        );
+        let _ = Message::new(&[], None);
+    }
 }

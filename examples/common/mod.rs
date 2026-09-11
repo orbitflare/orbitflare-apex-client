@@ -9,6 +9,7 @@
 //! KEYPAIR_PATH=payer.json     fee payer and tip funder
 //! SOLANA_RPC_URL=...          any Solana RPC for blockhash and confirmation
 //! TIP_LAMPORTS=1000000        default: the standard floor
+//! APEX_TX_VERSION=legacy|v1   message format (default legacy)
 //! ```
 #![allow(dead_code)]
 
@@ -36,6 +37,7 @@ pub struct Setup {
     pub solana: SolanaRpc,
     pub tip_lamports: u64,
     pub tip_accounts: Vec<Pubkey>,
+    pub v1: bool,
 }
 
 fn env(name: &str) -> Option<String> {
@@ -64,6 +66,7 @@ pub async fn setup() -> Result<Setup, Box<dyn std::error::Error>> {
     if tip_accounts.is_empty() {
         return Err("the endpoint published no tip accounts".into());
     }
+    let v1 = env("APEX_TX_VERSION").is_some_and(|v| v.eq_ignore_ascii_case("v1"));
     Ok(Setup {
         api_key,
         region,
@@ -73,6 +76,7 @@ pub async fn setup() -> Result<Setup, Box<dyn std::error::Error>> {
         solana,
         tip_lamports,
         tip_accounts,
+        v1,
     })
 }
 

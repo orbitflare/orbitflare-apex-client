@@ -99,8 +99,8 @@ both.
 
 All examples read `APEX_API_KEY`, `KEYPAIR_PATH` (default `payer.json`),
 `SOLANA_RPC_URL`, optional `APEX_REGION` (`fra` or `nyc`), `APEX_QUIC`,
-`APEX_RPC` and `TIP_LAMPORTS`. Each sends a tipped memo and reports the slot
-it landed in.
+`APEX_RPC`, `TIP_LAMPORTS` and `APEX_TX_VERSION` (`legacy` or `v1`). Each
+sends a tipped memo and reports the slot it landed in.
 
 | Example | Shows |
 |---|---|
@@ -133,7 +133,7 @@ CU on a short memo); size the limit to your own instructions.
 |---|---|
 | `ApexSenderClient::connect(region, api_key)` | Connect with an ephemeral local port and the defaults below |
 | `ApexSenderClient::connect_with_options(opts, api_key)` | `endpoint` override, `bind_addr` for firewall allowlists, `connect_timeout` 3 s, `send_timeout` 2 s, `keep_alive` 1 s, `mev_protect`, `max_retries`, `auto_reconnect` |
-| `send_transaction(&tx)` | Serialize and send on a unidirectional stream; returns the first signature |
+| `send_transaction(&tx)` | Serialize (legacy, v0 or v1) and send on a unidirectional stream; returns the first signature |
 | `send_transaction_bytes(bytes)` | The same with bytes you already hold |
 | `send_transaction_with_response(&tx)` | Bidirectional stream; `Err(Error::Rejected { code, message })` on rejection |
 | `send_with_response(bytes)` | The same with bytes; returns the raw `Admission` |
@@ -144,14 +144,15 @@ CU on a short memo); size the limit to your own instructions.
 | `rpc::SolanaRpc` | Any Solana RPC: `latest_blockhash`, `confirm(signature, timeout)` |
 | `rpc::fetch_vaults(solana_rpc_url)` | Tip accounts straight from the tip program |
 | `client_pubkey(api_key)` | The certificate key your API key derives to, as shown on your dashboard |
+| `serialize_transaction(&tx)` | The canonical wire bytes; the same as bincode for legacy and v0, and correct for v1 |
 | `wire::encode_packet`, `wire::decode_admission` | The wire format, for other languages |
 
 ## Limits and errors
 
 | | |
 |---|---|
-| Transaction size | 1232 bytes serialized (legacy or v0); larger is `Error::TooLarge` before anything is sent |
-| Packet size | at most 2464 bytes on the stream |
+| Transaction size | legacy and v0 up to 1232 bytes, v1 up to 4096; over 4096 is `Error::TooLarge` before anything is sent, an oversized legacy transaction is rejected by the endpoint |
+| Packet size | at most 4160 bytes on the stream |
 | Idle timeout | 10 s on the endpoint; the client pings every `keep_alive` (1 s) |
 | Rate limit | per key and tier, `AdmissionCode::RateLimited` or JSON-RPC `-32029` |
 | Connections | one client per process and endpoint is enough; streams multiplex on it |

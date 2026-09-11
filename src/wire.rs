@@ -4,7 +4,9 @@
 use solana_signature::Signature;
 
 /// Solana's packet limit.
-pub const MAX_TRANSACTION_SIZE: usize = 1232;
+/// v1 transactions go up to 4096 bytes; legacy and v0 stay at 1232, which
+/// the endpoint enforces per version.
+pub const MAX_TRANSACTION_SIZE: usize = 4096;
 pub const MAX_ADMISSION_FRAME: usize = 1 + 2 + 512;
 
 /// `u64 LE length` before the transaction bytes; `mev_protect` byte and
