@@ -173,6 +173,11 @@ pub enum ConnectionHealth {
     Closed,
 }
 
+/// How often the reconnect watchdog looks at the connection, and how far it
+/// backs off while the endpoint keeps refusing it.
+const WATCHDOG_TICK: Duration = Duration::from_millis(250);
+const WATCHDOG_MAX_BACKOFF: Duration = Duration::from_secs(30);
+
 #[derive(Debug, Clone)]
 pub struct ClientOptions {
     /// `host:port` of the QUIC ingress. Overrides the region default.
@@ -307,13 +312,23 @@ impl ApexSenderClient {
         if proactive {
             let weak = Arc::downgrade(&client.inner);
             tokio::spawn(async move {
-                let mut tick = tokio::time::interval(Duration::from_millis(250));
+                let mut wait = WATCHDOG_TICK;
                 loop {
-                    tick.tick().await;
+                    tokio::time::sleep(wait).await;
                     let Some(inner) = weak.upgrade() else { break };
-                    if inner.health() == ConnectionHealth::Closed {
-                        let _ = inner.get_or_connect().await;
+                    if inner.health() == ConnectionHealth::Healthy {
+                        wait = WATCHDOG_TICK;
+                        continue;
                     }
+                    // A drop is reconnected at once. A refusal (unknown key,
+                    // too many connections) will be refused again, so each
+                    // one doubles the wait instead of hammering the endpoint.
+                    wait = if inner.refused_by_endpoint() {
+                        (wait * 2).min(WATCHDOG_MAX_BACKOFF)
+                    } else {
+                        WATCHDOG_TICK
+                    };
+                    let _ = inner.get_or_connect().await;
                 }
             });
         }
@@ -358,6 +373,20 @@ impl Inner {
             Some(accepted) => accepted.await,
             None => true,
         }
+    }
+
+    /// True when the endpoint closed the current connection itself, with an
+    /// application error: no certificate (1), unknown key (2) or too many
+    /// connections (3).
+    fn refused_by_endpoint(&self) -> bool {
+        self.connection.try_lock().is_ok_and(|g| {
+            g.as_ref().is_some_and(|c| {
+                matches!(
+                    c.close_reason(),
+                    Some(quinn::ConnectionError::ApplicationClosed(_))
+                )
+            })
+        })
     }
 
     pub fn health(&self) -> ConnectionHealth {
