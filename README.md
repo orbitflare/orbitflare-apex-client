@@ -91,6 +91,27 @@ session ticket is cached) and retries once; set
 `ClientOptions::auto_reconnect` to `false` to handle it yourself.
 `health()` and `reconnects_total()` expose the state for your metrics.
 
+## Authentication and keep-alive
+
+Nothing is authenticated per request on QUIC. Your API key never leaves
+your machine: it derives an ed25519 key, the client presents it in its
+certificate during the handshake, and every stream on that connection is
+yours from then on. The connection stays open with a QUIC PING every
+second (the endpoint's idle timeout is 30 s), so a send is one stream open
+and one write on a warm connection, a few microseconds of client time.
+
+If the connection drops, the client reconnects with a session ticket and
+sends the waiting transaction in the handshake's first flight (0-RTT), and
+resends it if the endpoint declines the early data. A background task
+re-handshakes as soon as a drop is noticed, so the next send does not pay
+for it (`proactive_reconnect`, on by default). `health()`,
+`reconnects_total()` and `zero_rtt_resumptions_total()` show what happened.
+
+Over HTTP the key travels as the `x-api-key` header (or `?api-key=`), the
+endpoint checks a hash of it per request, and the connection stays open
+with HTTP keep-alive. `rpc::RpcClient::ping` warms it. The JSON-RPC path
+answers `sendTransaction` without touching the JSON-RPC dispatcher.
+
 ## Tips
 
 Every transaction carries exactly one top-level SystemProgram transfer to

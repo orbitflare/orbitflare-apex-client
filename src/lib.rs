@@ -41,6 +41,7 @@ mod tls;
 pub mod wire;
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -184,11 +185,15 @@ pub struct ClientOptions {
     pub bind_addr: Option<SocketAddr>,
     pub connect_timeout: Duration,
     pub send_timeout: Duration,
-    /// QUIC PING interval; the endpoint's idle timeout is 10 s.
+    /// QUIC PING interval; the endpoint's idle timeout is 30 s.
     pub keep_alive: Duration,
     /// When a send fails because the connection is gone, reconnect (0-RTT
     /// when a session ticket is cached) and send once more.
     pub auto_reconnect: bool,
+    /// A background task re-handshakes as soon as the connection drops, so
+    /// the next send never pays for the handshake. Off means the reconnect
+    /// happens on the next send instead.
+    pub proactive_reconnect: bool,
 }
 
 impl Default for ClientOptions {
@@ -202,17 +207,38 @@ impl Default for ClientOptions {
             send_timeout: Duration::from_secs(2),
             keep_alive: Duration::from_secs(1),
             auto_reconnect: true,
+            proactive_reconnect: true,
         }
     }
 }
 
+/// The client is cheap to clone; clones share one connection.
+#[derive(Clone)]
 pub struct ApexSenderClient {
+    inner: Arc<Inner>,
+}
+
+/// Shared connection state behind [`ApexSenderClient`].
+#[doc(hidden)]
+pub struct Inner {
     endpoint: Endpoint,
     remote: SocketAddr,
     server_name: String,
     options: ClientOptions,
     connection: Mutex<Option<Connection>>,
+    /// Set after a 0-RTT resumption until the server has said whether it
+    /// accepted the early data; the first send after it waits and resends
+    /// on rejection.
+    zero_rtt: Mutex<Option<quinn::ZeroRttAccepted>>,
     reconnects: AtomicU64,
+    zero_rtt_resumptions: AtomicU64,
+}
+
+impl std::ops::Deref for ApexSenderClient {
+    type Target = Inner;
+    fn deref(&self) -> &Inner {
+        &self.inner
+    }
 }
 
 impl ApexSenderClient {
@@ -242,10 +268,19 @@ impl ApexSenderClient {
             .map_err(|e| Error::Resolve(e.to_string()))?
             .next()
             .ok_or_else(|| Error::Resolve(format!("{target}: no address")))?;
-        let server_name = target
-            .rsplit_once(':')
-            .map_or(target.as_str(), |(h, _)| h)
-            .to_owned();
+        // The server certificate is not verified, so the TLS name only keys
+        // the session cache used for 0-RTT reconnects. IP endpoints get a
+        // fixed name so that key is stable and always a valid DNS name.
+        let host = target.rsplit_once(':').map_or(target.as_str(), |(h, _)| h);
+        let is_ip = host
+            .trim_matches(|c| c == '[' || c == ']')
+            .parse::<std::net::IpAddr>()
+            .is_ok();
+        let server_name = if is_ip {
+            "apex-sender".to_owned()
+        } else {
+            host.to_owned()
+        };
         let keypair = tls::derive_client_keypair(api_key);
         let endpoint = tls::build_endpoint(
             options.bind_addr.unwrap_or_else(|| match remote {
@@ -255,18 +290,38 @@ impl ApexSenderClient {
             &keypair,
             options.keep_alive,
         )?;
+        let proactive = options.proactive_reconnect;
         let client = Self {
-            endpoint,
-            remote,
-            server_name,
-            options,
-            connection: Mutex::new(None),
-            reconnects: AtomicU64::new(0),
+            inner: Arc::new(Inner {
+                endpoint,
+                remote,
+                server_name,
+                options,
+                connection: Mutex::new(None),
+                zero_rtt: Mutex::new(None),
+                reconnects: AtomicU64::new(0),
+                zero_rtt_resumptions: AtomicU64::new(0),
+            }),
         };
         client.get_or_connect().await?;
+        if proactive {
+            let weak = Arc::downgrade(&client.inner);
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(Duration::from_millis(250));
+                loop {
+                    tick.tick().await;
+                    let Some(inner) = weak.upgrade() else { break };
+                    if inner.health() == ConnectionHealth::Closed {
+                        let _ = inner.get_or_connect().await;
+                    }
+                }
+            });
+        }
         Ok(client)
     }
+}
 
+impl Inner {
     async fn get_or_connect(&self) -> Result<Connection, Error> {
         let mut guard = self.connection.lock().await;
         if let Some(conn) = guard.as_ref()
@@ -274,15 +329,35 @@ impl ApexSenderClient {
         {
             return Ok(conn.clone());
         }
-        if guard.is_some() {
+        let resuming = guard.is_some();
+        if resuming {
             self.reconnects.fetch_add(1, Ordering::Relaxed);
         }
         let connecting = self.endpoint.connect(self.remote, &self.server_name)?;
-        let conn = tokio::time::timeout(self.options.connect_timeout, connecting)
-            .await
-            .map_err(|_| Error::Timeout)??;
+        // With a session ticket the connection is usable at once and the
+        // first sends ride in the handshake's first flight (0-RTT).
+        let conn = match connecting.into_0rtt() {
+            Ok((conn, accepted)) => {
+                self.zero_rtt_resumptions.fetch_add(1, Ordering::Relaxed);
+                *self.zero_rtt.lock().await = Some(accepted);
+                conn
+            }
+            Err(connecting) => tokio::time::timeout(self.options.connect_timeout, connecting)
+                .await
+                .map_err(|_| Error::Timeout)??,
+        };
         *guard = Some(conn.clone());
         Ok(conn)
+    }
+
+    /// After a 0-RTT send: wait for the server's verdict on the early data.
+    /// `false` means the data was dropped and must be sent again.
+    async fn early_data_accepted(&self) -> bool {
+        let pending = self.zero_rtt.lock().await.take();
+        match pending {
+            Some(accepted) => accepted.await,
+            None => true,
+        }
     }
 
     pub fn health(&self) -> ConnectionHealth {
@@ -298,16 +373,25 @@ impl ApexSenderClient {
         self.reconnects.load(Ordering::Relaxed)
     }
 
+    /// Reconnects that resumed a session and sent in the first flight.
+    pub fn zero_rtt_resumptions_total(&self) -> u64 {
+        self.zero_rtt_resumptions.load(Ordering::Relaxed)
+    }
+
     pub const fn remote_addr(&self) -> SocketAddr {
         self.remote
     }
 
     /// Drop the current connection and open a new one.
     pub async fn reconnect(&self) -> Result<(), Error> {
-        *self.connection.lock().await = None;
+        if self.connection.lock().await.take().is_some() {
+            self.reconnects.fetch_add(1, Ordering::Relaxed);
+        }
         self.get_or_connect().await.map(|_| ())
     }
+}
 
+impl ApexSenderClient {
     /// Serialize and send. Returns the transaction's first signature. No
     /// acknowledgement is read; use [`send_with_response`] for one.
     ///
@@ -361,7 +445,7 @@ impl ApexSenderClient {
 
     async fn write_uni(&self, header: &[u8], wire: &[u8], trailer: &[u8]) -> Result<(), Error> {
         let conn = self.get_or_connect().await?;
-        tokio::time::timeout(self.options.send_timeout, async {
+        let write = |conn: Connection| async move {
             let mut stream = conn.open_uni().await?;
             stream
                 .write_all_chunks(&mut [
@@ -372,9 +456,18 @@ impl ApexSenderClient {
                 .await?;
             stream.finish().map_err(|_| Error::Closed)?;
             Ok::<(), Error>(())
-        })
-        .await
-        .map_err(|_| Error::Timeout)?
+        };
+        tokio::time::timeout(self.options.send_timeout, write(conn.clone()))
+            .await
+            .map_err(|_| Error::Timeout)??;
+        if !self.early_data_accepted().await {
+            // The server declined the 0-RTT data: it is gone, send it again
+            // on the now-established connection.
+            tokio::time::timeout(self.options.send_timeout, write(conn))
+                .await
+                .map_err(|_| Error::Timeout)??;
+        }
+        Ok(())
     }
 
     /// Send on a bidirectional stream and read the admission response.
@@ -423,6 +516,11 @@ impl ApexSenderClient {
 
     pub fn close(self) {
         self.endpoint.close(0u32.into(), b"client closed");
+    }
+
+    /// The certificate public key this client presents.
+    pub fn options(&self) -> &ClientOptions {
+        &self.inner.options
     }
 }
 
