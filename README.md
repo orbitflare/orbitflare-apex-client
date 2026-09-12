@@ -230,12 +230,12 @@ CU on a short memo); size the limit to your own instructions.
 | Packet size | at most 4160 bytes on the stream |
 | Idle timeout | 30 s on the endpoint; the client pings every `keep_alive` (1 s) |
 | Rate limit | per key and tier, `AdmissionCode::RateLimited` or JSON-RPC `-32029` |
-| Connections | one client per process and endpoint is enough; streams multiplex on it |
+| Connections | one client per process and endpoint is enough; streams multiplex on it. Limits: 128 per key, 64 per address |
 
 Plain HTTP routes reply with JSON. Accepted: `{"signature": "..."}` and
 200. Rejected: `{"error": "<label>", "message": "..."}` with 401
-(unauthorized), 429 (rate limited), 400 (invalid transaction, tip or size)
-or 503 (busy). `/send-batch` replies 200 with `attempted`, `accepted`,
+(unauthorized), 429 (rate limited), 400 (invalid transaction, tip or size),
+408 (the body did not arrive within 2 s) or 503 (busy). `/send-batch` replies 200 with `attempted`, `accepted`,
 `rejected` and one result per frame.
 
 Admission codes on the bidirectional stream: `Ok`, `Unauthorized`,
