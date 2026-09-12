@@ -129,17 +129,40 @@ tip stays with OrbitFlare and pays the validators whose stake carried it.
 `rpc::fetch_vaults(solana_rpc_url)` reads the vault list from any Solana RPC
 without calling the endpoint.
 
+Transaction v1: the compute budget lives in the message's
+`TransactionConfig`, not in ComputeBudget instructions, and every limit left
+unset is 0. Set the compute unit limit, the loaded accounts data size limit
+and, for priority, the fee (a total in lamports). A v1 transaction that
+relies on ComputeBudget instructions fails on chain with
+`MaxLoadedAccountsDataSizeExceeded`. `examples/common/mod.rs` shows the
+config; `APEX_TX_VERSION=v1 APEX_MEMO_BYTES=1400 APEX_CU_LIMIT=1400000`
+sends one above the legacy 1232-byte limit.
+
 Priority fee: the endpoint gets your transaction to the leader; the leader's
 scheduler still orders by compute unit price. Set a compute unit limit near
 what the transaction uses and a price that fits the market. The examples do
 both.
+
+## Bundles
+
+`rpc::RpcClient::send_bundle` sends one to four transactions that land in
+order, all or nothing. Exactly one of them carries the tip, at or above your
+floor; that tip minus the base fee becomes the bid. Bundles travel the
+block-engine path only, because the stake and TPU paths cannot keep a group
+atomic, so they land on Jito-enabled leaders. Each member is limited to 1232
+bytes. The endpoint resubmits until the bundle lands or the first
+transaction's blockhash expires; `bundle_statuses` reports Pending, Landed
+with the slot, Failed or Invalid. JSON-RPC `sendBundle` and
+`getInflightBundleStatuses` take Jito's parameter shapes, so existing bundle
+code moves over with a URL change.
 
 ## Examples
 
 All examples read `APEX_API_KEY`, `KEYPAIR_PATH` (default `payer.json`),
 `SOLANA_RPC_URL`, optional `APEX_REGION` (a code from the table above),
 `APEX_QUIC`,
-`APEX_RPC`, `TIP_LAMPORTS` and `APEX_TX_VERSION` (`legacy` or `v1`). Each
+`APEX_RPC`, `TIP_LAMPORTS`, `APEX_TX_VERSION` (`legacy` or `v1`),
+`APEX_MEMO_BYTES` and `APEX_CU_LIMIT`. Each
 sends a tipped memo and reports the slot it landed in.
 
 | Example | Shows |
@@ -149,9 +172,12 @@ sends a tipped memo and reports the slot it landed in.
 | `rpc_send` | JSON-RPC `sendTransaction` over HTTP with the same tip rule |
 | `raw_bytes` | Pre-serialized bytes on the wire, and the exact packet layout for other languages |
 | `throughput` | One warm connection, N concurrent sends, per-send p50 and p99, landing count |
+| `bundle` | An atomic bundle of two transactions, one tipped, and its status until it lands |
 | `client_pubkey` | The certificate key an API key derives to, to compare with your dashboard |
 | `typescript/send_rpc.ts` | The JSON-RPC path from `@solana/web3.js`, no client library needed |
 | `python/send.py` | The binary route and JSON-RPC from Python with `solders` |
+| `javascript/send.mjs` | Plain Node: the binary route and a batch, no build step |
+| `curl/README.md` | Every route with cURL alone, including batch and bundle framing |
 
 ```
 APEX_API_KEY=... KEYPAIR_PATH=payer.json SOLANA_RPC_URL=https://... \
@@ -181,7 +207,7 @@ CU on a short memo); size the limit to your own instructions.
 | `health()`, `reconnects_total()`, `remote_addr()` | Connection state |
 | `reconnect()`, `close()` | Lifecycle |
 | `tip_instruction(payer, tip_account, lamports)`, `tip::pick_tip_account(&accounts)` | The tip |
-| `rpc::RpcClient` | The endpoint over HTTP: `get_tip_accounts`, `send_transaction` (JSON-RPC), `send_transaction_binary`, `send_batch`, `ping` |
+| `rpc::RpcClient` | The endpoint over HTTP: `get_tip_accounts`, `send_transaction` (JSON-RPC), `send_transaction_binary`, `send_batch`, `send_bundle`, `bundle_statuses`, `ping` |
 | `rpc::SolanaRpc` | Any Solana RPC: `latest_blockhash`, `confirm(signature, timeout)` |
 | `rpc::fetch_vaults(solana_rpc_url)` | Tip accounts straight from the tip program |
 | `client_pubkey(api_key)` | The certificate key your API key derives to, as shown on your dashboard |
@@ -194,7 +220,7 @@ CU on a short memo); size the limit to your own instructions.
 |---|---|
 | Transaction size | legacy and v0 up to 1232 bytes, v1 up to 4096; over 4096 is `Error::TooLarge` before anything is sent, an oversized legacy transaction is rejected by the endpoint |
 | Packet size | at most 4160 bytes on the stream |
-| Idle timeout | 10 s on the endpoint; the client pings every `keep_alive` (1 s) |
+| Idle timeout | 30 s on the endpoint; the client pings every `keep_alive` (1 s) |
 | Rate limit | per key and tier, `AdmissionCode::RateLimited` or JSON-RPC `-32029` |
 | Connections | one client per process and endpoint is enough; streams multiplex on it |
 
@@ -219,7 +245,7 @@ any RPC.
 
 - build or sign transactions, or choose your priority fee
 - simulate or preflight (nothing between you and the leader does)
-- bundle transactions together; each is independent
+- simulate a bundle before sending it
 
 ## Other languages
 

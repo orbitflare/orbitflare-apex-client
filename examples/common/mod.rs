@@ -10,6 +10,8 @@
 //! SOLANA_RPC_URL=...          any Solana RPC for blockhash and confirmation
 //! TIP_LAMPORTS=1000000        default: the standard floor
 //! APEX_TX_VERSION=legacy|v1   message format (default legacy)
+//! APEX_MEMO_BYTES=1400        pad the memo, to try a v1 transaction over 1232 bytes
+//! APEX_CU_LIMIT=1400000       compute unit limit (a long memo is expensive)
 //! ```
 #![allow(dead_code)]
 
@@ -101,13 +103,27 @@ impl Setup {
             .as_nanos();
         let memo = Instruction::new_with_bytes(
             Pubkey::from_str(MEMO_PROGRAM)?,
-            format!("{label} {nonce}").as_bytes(),
+            {
+                let pad = env("APEX_MEMO_BYTES")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(0);
+                let mut text = format!("{label} {nonce} ");
+                while text.len() < pad {
+                    text.push('x');
+                }
+                text
+            }
+            .as_bytes(),
             vec![AccountMeta::new(self.payer.pubkey(), true)],
         );
         let tip_account = tip::pick_tip_account(&self.tip_accounts).ok_or("no tip accounts")?;
+        // The memo program is expensive per byte; a padded memo needs a high limit.
+        let budget = env("APEX_CU_LIMIT")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(if self.v1 { 400_000 } else { 100_000 });
         let ixs = [
             solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
-                100_000,
+                budget,
             ),
             solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_price(
                 tip::DEFAULT_COMPUTE_UNIT_PRICE_MICRO_LAMPORTS,
@@ -115,6 +131,32 @@ impl Setup {
             memo,
             tip_instruction(&self.payer.pubkey(), &tip_account, self.tip_lamports),
         ];
+        if self.v1 {
+            // v1 (SIMD-0385): up to 4096 bytes on the wire. The compute
+            // budget lives in the message's TransactionConfig, not in
+            // ComputeBudget instructions, and every limit left unset is 0:
+            // set the compute unit limit, the loaded accounts data size and,
+            // if you want priority, the fee (a total in lamports).
+            let config = solana_message::v1::TransactionConfig::empty()
+                .with_compute_unit_limit(budget)
+                .with_loaded_accounts_data_size_limit(1024 * 1024)
+                .with_priority_fee(4_000);
+            let msg = solana_message::v1::Message::try_compile_with_config(
+                &self.payer.pubkey(),
+                &ixs[2..],
+                blockhash,
+                config,
+            )?;
+            let tx = VersionedTransaction::try_new(
+                solana_message::VersionedMessage::V1(msg),
+                &[&self.payer],
+            )?;
+            println!(
+                "built a v1 transaction of {} bytes",
+                apex_sender_client::serialize_transaction(&tx)?.len()
+            );
+            return Ok(tx);
+        }
         let tx = Transaction::new_signed_with_payer(
             &ixs,
             Some(&self.payer.pubkey()),

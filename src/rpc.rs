@@ -222,6 +222,103 @@ impl RpcClient {
     }
 }
 
+/// What the endpoint returns for an accepted bundle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BundleAccepted {
+    pub bundle_id: String,
+    pub signatures: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BundleState {
+    Pending,
+    Landed,
+    Failed,
+    Invalid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BundleStatus {
+    pub bundle_id: String,
+    pub state: BundleState,
+    pub landed_slot: Option<u64>,
+}
+
+/// Up to this many transactions per bundle, each at most 1232 bytes.
+pub const MAX_BUNDLE: usize = 4;
+
+impl RpcClient {
+    /// `POST /send-bundle`: one to four transactions that land in order, all
+    /// or nothing. Exactly one of them carries the tip. Bundles travel the
+    /// block-engine path only, so they land on Jito-enabled leaders; the
+    /// endpoint resubmits until the bundle lands or the first transaction's
+    /// blockhash expires.
+    pub async fn send_bundle(&self, wires: &[&[u8]]) -> Result<BundleAccepted, RpcError> {
+        if wires.is_empty()
+            || wires.len() > MAX_BUNDLE
+            || wires.iter().any(|w| w.is_empty() || w.len() > 1232)
+        {
+            return Err(RpcError::BadResponse);
+        }
+        let mut body = Vec::with_capacity(wires.iter().map(|w| w.len() + 2).sum());
+        for w in wires {
+            body.extend_from_slice(&(w.len() as u16).to_be_bytes());
+            body.extend_from_slice(w);
+        }
+        let resp = self
+            .http
+            .post(format!("{}/send-bundle", self.url.trim_end_matches('/')))
+            .header("x-api-key", &self.api_key)
+            .header("content-type", "application/octet-stream")
+            .body(body)
+            .send()
+            .await?;
+        let v: Value = resp.json().await?;
+        let Some(bundle_id) = v["bundle_id"].as_str() else {
+            return Err(Self::plain_error(&v));
+        };
+        Ok(BundleAccepted {
+            bundle_id: bundle_id.to_owned(),
+            signatures: v["signatures"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+    }
+
+    /// `getInflightBundleStatuses` for ids returned by [`send_bundle`].
+    ///
+    /// [`send_bundle`]: RpcClient::send_bundle
+    pub async fn bundle_statuses(
+        &self,
+        bundle_ids: &[&str],
+    ) -> Result<Vec<BundleStatus>, RpcError> {
+        let v = self
+            .call("getInflightBundleStatuses", json!([bundle_ids]))
+            .await?;
+        Ok(v["value"]
+            .as_array()
+            .ok_or(RpcError::BadResponse)?
+            .iter()
+            .map(|s| BundleStatus {
+                bundle_id: s["bundle_id"].as_str().unwrap_or("").to_owned(),
+                state: match s["status"].as_str() {
+                    Some("Landed") => BundleState::Landed,
+                    Some("Failed") => BundleState::Failed,
+                    Some("Pending") => BundleState::Pending,
+                    _ => BundleState::Invalid,
+                },
+                landed_slot: s["landed_slot"].as_u64(),
+            })
+            .collect())
+    }
+}
+
 /// Frame transactions for `/send-batch`: `u16 BE length + bytes` each.
 /// `None` when empty, over [`MAX_BATCH`], or a transaction exceeds 4096 bytes.
 pub fn encode_batch(wires: &[&[u8]]) -> Option<Vec<u8>> {

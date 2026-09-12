@@ -1,0 +1,7 @@
+{
+  "name": "apex-sender-javascript-example",
+  "private": true,
+  "type": "module",
+  "scripts": { "send": "node send.mjs" },
+  "dependencies": { "@solana/web3.js": "^1.98.0" }
+}
