@@ -67,6 +67,11 @@ QUIC path alone has no HTTP dependency.
 
 JSON-RPC and the plain HTTP routes are on port 80; QUIC is UDP 7001.
 
+> The HTTP routes are plain HTTP, like other Solana senders. Your API key and
+> transactions are readable by anyone on the network path. Prefer QUIC, where
+> the key never leaves your machine, or send HTTP only from a network you
+> trust. Rotate the key from the dashboard if you think it was exposed.
+
 Pick the endpoint nearest to you, or `Region::Global`, which resolves to
 the nearest one. Every endpoint knows the full leader schedule and routes
 each transaction to the validator clients nearest the upcoming leaders, so
@@ -126,8 +131,11 @@ The tip accounts are vaults of OrbitFlare's on-chain tip program
 path is the one that lands, the tip minus the base fee is bid to Jito in
 the same bundle as your transaction; when a stake path lands first, the
 tip stays with OrbitFlare and pays the validators whose stake carried it.
-`rpc::fetch_vaults(solana_rpc_url)` reads the vault list from any Solana RPC
-without calling the endpoint.
+Take the accounts to tip from `getTipAccounts`. `rpc::fetch_vaults` lists
+every vault of the program on chain, which is useful to verify a published
+account but is not the published list: anyone can create a vault (its funds
+still only reach OrbitFlare), and the endpoint rejects tips to unpublished
+ones.
 
 Transaction v1: the compute budget lives in the message's
 `TransactionConfig`, not in ComputeBudget instructions, and every limit left
@@ -209,7 +217,7 @@ CU on a short memo); size the limit to your own instructions.
 | `tip_instruction(payer, tip_account, lamports)`, `tip::pick_tip_account(&accounts)` | The tip |
 | `rpc::RpcClient` | The endpoint over HTTP: `get_tip_accounts`, `send_transaction` (JSON-RPC), `send_transaction_binary`, `send_batch`, `send_bundle`, `bundle_statuses`, `ping` |
 | `rpc::SolanaRpc` | Any Solana RPC: `latest_blockhash`, `confirm(signature, timeout)` |
-| `rpc::fetch_vaults(solana_rpc_url)` | Tip accounts straight from the tip program |
+| `rpc::fetch_vaults(solana_rpc_url)` | Every vault of the tip program on chain, for verification; not the published list |
 | `client_pubkey(api_key)` | The certificate key your API key derives to, as shown on your dashboard |
 | `serialize_transaction(&tx)` | The canonical wire bytes; the same as bincode for legacy and v0, and correct for v1 |
 | `wire::encode_packet`, `wire::decode_admission` | The wire format, for other languages |

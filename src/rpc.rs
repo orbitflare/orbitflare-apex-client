@@ -346,8 +346,14 @@ pub async fn fetch_tip_accounts(region: Region, api_key: &str) -> Result<Vec<Pub
 pub const TIP_PROGRAM_ID: &str = "9ig7pd4gqe2m16ACGPbPo4HfMGD3ba38poDhXEayx7EF";
 const VAULT_TAG_BASE64: &str = "QVBFWFZMVDE=";
 
-/// Read the tip vaults straight from chain through any Solana RPC, for
-/// callers who would rather not ask the sender. Same set as `getTipAccounts`.
+/// Read the program's vault accounts from chain through any Solana RPC.
+///
+/// Not a trusted list: anyone can create a vault of the program (the funds in
+/// one can still only reach OrbitFlare), so this returns every vault that
+/// exists, including ones OrbitFlare never published, and a tip to an
+/// unpublished vault is rejected by the endpoint. Use
+/// [`RpcClient::get_tip_accounts`] for the accounts to tip; use this only to
+/// check that a published account really is a vault of the program.
 pub async fn fetch_vaults(solana_rpc_url: &str) -> Result<Vec<Pubkey>, RpcError> {
     let body = json!({
         "jsonrpc": "2.0", "id": 1, "method": "getProgramAccounts",
