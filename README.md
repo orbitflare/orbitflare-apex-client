@@ -131,7 +131,25 @@ The tip accounts are vaults of OrbitFlare's on-chain tip program
 path is the one that lands, the tip minus the base fee is bid to Jito in
 the same bundle as your transaction; when a stake path lands first, the
 tip stays with OrbitFlare and pays the validators whose stake carried it.
-Take the accounts to tip from `getTipAccounts`. `rpc::fetch_vaults` lists
+Take the accounts to tip from `getTipAccounts`. On mainnet they are these
+ten vaults of program `9ig7pd4gqe2m16ACGPbPo4HfMGD3ba38poDhXEayx7EF`, every
+one starting with `APeX`; the endpoint's answer is authoritative and is where
+a change appears first:
+
+```
+APeX2oLtjYehgTMUCA971L8htM7tGNqsXHDz5NrivhhX
+APeXAKT6spXSmU3uRv2MoEgQ7ckhAS4nexTgaxwLEfJ9
+APeXB4mu1X7BSjwyPtiNUnKyhvc4wrq5SKEdmnPKWR95
+APeXJTSGoxLWmwb9o1tiiEL5RXVUakazYgjLmZdDc2Ef
+APeXUUaKFfPXjPxKHEdwCsJ4BfTuGg4qnVQyJE9K37PU
+APeXVWXKDRAAujckMjmMsV61a4DQiXa98MPUAkL46sim
+APeXW6PKFZRDz7WXBBybBMcoJaQo97UtLa5TAQnchNBY
+APeXZuKaKuqouyfU8fFL1woeWvSEVFkY4EMrmkvbfhhD
+APeXbYdbmrYWsastf6GurexGe3dwnuWKLD2mcsDoEuBU
+APeXn29deoxpsZz6r7n63Ymmv2skBr3WhKYLB1mB2fR7
+```
+
+`rpc::fetch_vaults` lists
 every vault of the program on chain, which is useful to verify a published
 account but is not the published list: anyone can create a vault (its funds
 still only reach OrbitFlare), and the endpoint rejects tips to unpublished

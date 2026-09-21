@@ -26,3 +26,5 @@ can.
 The batch body is up to 16 frames of a big-endian `u16` length followed by
 the transaction bytes; the reply lists one result per frame, in order.
 the Apex docs at https://docs.orbitflare.com/apex has the full contract.
+
+The tip account comes from `getTipAccounts` at run time. On mainnet every published account starts with `APeX` (the ten are listed in the top-level README); if you ever see a different prefix, stop and check the endpoint you are talking to.

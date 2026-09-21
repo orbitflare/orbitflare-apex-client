@@ -46,3 +46,5 @@ curl -s $APEX/ping
 Replies: `{"signature":"..."}` on success; `{"error":"<label>","message":"..."}`
 with 401, 429, 400, 413 or 503 otherwise. JSON-RPC uses the standard error
 object with codes -32001, -32029, -32602 and -32603.
+
+The tip account comes from `getTipAccounts` at run time. On mainnet every published account starts with `APeX` (the ten are listed in the top-level README); if you ever see a different prefix, stop and check the endpoint you are talking to.
