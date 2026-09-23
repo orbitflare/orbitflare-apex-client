@@ -11,13 +11,9 @@ mod common;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use apex_sender_client::prelude::*;
 use apex_sender_client::rpc::{BundleState, RpcClient};
 use apex_sender_client::serialize_transaction;
-use solana_instruction::{AccountMeta, Instruction};
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use solana_transaction::Transaction;
-use solana_transaction::versioned::VersionedTransaction;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

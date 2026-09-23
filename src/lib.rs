@@ -47,12 +47,30 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use quinn::{Connection, Endpoint};
-use solana_signature::Signature;
-use solana_transaction::versioned::VersionedTransaction;
 use tokio::sync::Mutex;
 
 pub use tip::{MIN_TIP_LAMPORTS, tip_instruction};
 pub use wire::{Admission, AdmissionCode};
+
+pub use solana_hash::Hash;
+pub use solana_instruction::Instruction;
+pub use solana_keypair::Keypair;
+pub use solana_pubkey::Pubkey;
+pub use solana_signature::Signature;
+pub use solana_transaction::versioned::VersionedTransaction;
+
+pub mod prelude {
+    pub use crate::{
+        ApexSenderClient, ClientOptions, Hash, Instruction, Keypair, MIN_TIP_LAMPORTS, Pubkey,
+        Region, Signature, VersionedTransaction, tip_instruction,
+    };
+    pub use solana_compute_budget_interface::ComputeBudgetInstruction;
+    pub use solana_instruction::AccountMeta;
+    pub use solana_keypair::read_keypair_file;
+    pub use solana_message::{Message, VersionedMessage, v1};
+    pub use solana_signer::Signer;
+    pub use solana_transaction::Transaction;
+}
 
 /// The Apex endpoints. Pick the one nearest to you; each routes to every
 /// validator client, Jito and the leader TPUs on its own.

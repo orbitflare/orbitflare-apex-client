@@ -18,15 +18,9 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use apex_sender_client::prelude::*;
 use apex_sender_client::rpc::{RpcClient, SolanaRpc};
-use apex_sender_client::{MIN_TIP_LAMPORTS, Region, tip, tip_instruction};
-use solana_hash::Hash;
-use solana_instruction::{AccountMeta, Instruction};
-use solana_keypair::{Keypair, read_keypair_file};
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use solana_transaction::Transaction;
-use solana_transaction::versioned::VersionedTransaction;
+use apex_sender_client::tip;
 
 pub const MEMO_PROGRAM: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 
@@ -122,10 +116,8 @@ impl Setup {
             .and_then(|v| v.parse().ok())
             .unwrap_or(if self.v1 { 400_000 } else { 100_000 });
         let ixs = [
-            solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
-                budget,
-            ),
-            solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_price(
+            ComputeBudgetInstruction::set_compute_unit_limit(budget),
+            ComputeBudgetInstruction::set_compute_unit_price(
                 tip::DEFAULT_COMPUTE_UNIT_PRICE_MICRO_LAMPORTS,
             ),
             memo,
@@ -137,20 +129,17 @@ impl Setup {
             // ComputeBudget instructions, and every limit left unset is 0:
             // set the compute unit limit, the loaded accounts data size and,
             // if you want priority, the fee (a total in lamports).
-            let config = solana_message::v1::TransactionConfig::empty()
+            let config = v1::TransactionConfig::empty()
                 .with_compute_unit_limit(budget)
                 .with_loaded_accounts_data_size_limit(1024 * 1024)
                 .with_priority_fee(4_000);
-            let msg = solana_message::v1::Message::try_compile_with_config(
+            let msg = v1::Message::try_compile_with_config(
                 &self.payer.pubkey(),
                 &ixs[2..],
                 blockhash,
                 config,
             )?;
-            let tx = VersionedTransaction::try_new(
-                solana_message::VersionedMessage::V1(msg),
-                &[&self.payer],
-            )?;
+            let tx = VersionedTransaction::try_new(VersionedMessage::V1(msg), &[&self.payer])?;
             println!(
                 "built a v1 transaction of {} bytes",
                 apex_sender_client::serialize_transaction(&tx)?.len()
