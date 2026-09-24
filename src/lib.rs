@@ -78,6 +78,7 @@ pub mod prelude {
 pub enum Region {
     Frankfurt,
     Amsterdam,
+    Dublin,
     London,
     NewYork,
     SaltLakeCity,
@@ -90,9 +91,10 @@ pub enum Region {
 }
 
 impl Region {
-    pub const ALL: [Region; 9] = [
+    pub const ALL: [Region; 10] = [
         Region::Frankfurt,
         Region::Amsterdam,
+        Region::Dublin,
         Region::London,
         Region::NewYork,
         Region::SaltLakeCity,
@@ -113,6 +115,7 @@ impl Region {
         match self {
             Region::Frankfurt => "fra",
             Region::Amsterdam => "ams",
+            Region::Dublin => "dub",
             Region::London => "lon",
             Region::NewYork => "nyc",
             Region::SaltLakeCity => "slc",
@@ -128,6 +131,7 @@ impl Region {
         match code.to_ascii_lowercase().as_str() {
             "fra" | "frankfurt" => Some(Region::Frankfurt),
             "ams" | "amsterdam" => Some(Region::Amsterdam),
+            "dub" | "dublin" => Some(Region::Dublin),
             "lon" | "london" => Some(Region::London),
             "nyc" | "ny" | "newyork" | "new-york" => Some(Region::NewYork),
             "slc" | "saltlakecity" | "salt-lake-city" => Some(Region::SaltLakeCity),
@@ -634,6 +638,15 @@ mod tests {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_transaction::Transaction;
+
+    #[test]
+    fn every_region_parses_back_from_its_code() {
+        for region in Region::ALL {
+            assert_eq!(Region::parse(region.code()), Some(region));
+        }
+        assert_eq!(Region::parse("Dublin"), Some(Region::Dublin));
+        assert_eq!(Region::Dublin.quic_endpoint(), "dub.apex.orbitflare.com:7001");
+    }
 
     #[test]
     fn legacy_serialization_matches_bincode() {

@@ -57,6 +57,7 @@ QUIC path alone has no HTTP dependency.
 |---|---|---|
 | 🇩🇪 Frankfurt | `fra` | `fra.apex.orbitflare.com` |
 | 🇳🇱 Amsterdam | `ams` | `ams.apex.orbitflare.com` |
+| 🇮🇪 Dublin | `dub` | `dub.apex.orbitflare.com` |
 | 🇬🇧 London | `lon` | `lon.apex.orbitflare.com` |
 | 🇺🇸 New York | `nyc` | `nyc.apex.orbitflare.com` |
 | 🇺🇸 Salt Lake City | `slc` | `slc.apex.orbitflare.com` |
