@@ -12,8 +12,8 @@ use solana_keypair::Keypair;
 use crate::Error;
 
 /// Must match the server; see the sender's `auth.rs`.
-const CLIENT_CERT_SALT: &[u8] = b"apex-sender";
-const CLIENT_CERT_INFO: &[u8] = b"apex-sender-client-cert";
+const CLIENT_CERT_SALT: &[u8] = b"orbitflare-apex";
+const CLIENT_CERT_INFO: &[u8] = b"orbitflare-apex/quic-client-cert/v1";
 const ALPN_TPU: &[u8] = b"solana-tpu";
 const MAX_IDLE: Duration = Duration::from_secs(10);
 
@@ -78,7 +78,7 @@ mod tests {
     fn derivation_matches_the_server() {
         assert_eq!(
             derive_client_keypair("test-api-key").pubkey().to_string(),
-            "ANPhYB8kmb2puLauuJKSX5orMk3rVT87gBWWy94F68hU"
+            "2ovF9aU8fszHXpZwxaC1S9NF2m5VVDRBUvDUVQvXs4Tv"
         );
     }
 }

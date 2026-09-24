@@ -10,7 +10,7 @@ mod common;
 
 use std::time::Instant;
 
-use apex_sender_client::rpc::RpcClient;
+use orbitflare_apex::rpc::RpcClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rpc = RpcClient::with_url(s.rpc_url.clone(), &s.api_key);
 
     let tx = s.tipped_memo("apex rpc_send").await?;
-    let wire = apex_sender_client::serialize_transaction(&tx)?;
+    let wire = orbitflare_apex::serialize_transaction(&tx)?;
     let sent_at = Instant::now();
     // mev_protect = false, max_retries = None (the endpoint's default).
     let signature = rpc.send_transaction(&wire, false, None).await?;

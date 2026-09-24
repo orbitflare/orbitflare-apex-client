@@ -11,7 +11,7 @@ mod common;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use apex_sender_client::{ApexSenderClient, ClientOptions};
+use orbitflare_apex::{ApexSenderClient, ClientOptions};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

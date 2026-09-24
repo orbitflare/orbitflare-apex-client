@@ -4,7 +4,7 @@
 //!
 //! APEX_API_KEY=... cargo run --example client_pubkey
 
-use apex_sender_client::client_pubkey;
+use orbitflare_apex::client_pubkey;
 
 fn main() {
     let key = std::env::var("APEX_API_KEY").unwrap_or_default();

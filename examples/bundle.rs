@@ -11,9 +11,9 @@ mod common;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use apex_sender_client::prelude::*;
-use apex_sender_client::rpc::{BundleState, RpcClient};
-use apex_sender_client::serialize_transaction;
+use orbitflare_apex::prelude::*;
+use orbitflare_apex::rpc::{BundleState, RpcClient};
+use orbitflare_apex::serialize_transaction;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

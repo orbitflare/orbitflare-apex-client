@@ -1,4 +1,4 @@
-//! `apex-sender-client` submits Solana transactions to OrbitFlare's Apex
+//! `orbitflare-apex` submits Solana transactions to OrbitFlare's Apex
 //! endpoints.
 //!
 //! Three transports, one tip rule:
@@ -21,8 +21,8 @@
 //! the accounts.
 //!
 //! ```no_run
-//! # async fn run() -> Result<(), apex_sender_client::Error> {
-//! use apex_sender_client::{ApexSenderClient, Region, tip_instruction};
+//! # async fn run() -> Result<(), orbitflare_apex::Error> {
+//! use orbitflare_apex::{ApexSenderClient, Region, tip_instruction};
 //! let client = ApexSenderClient::connect(Region::Frankfurt, "your-api-key").await?;
 //! // build a VersionedTransaction that includes tip_instruction(payer, tip_account, lamports)
 //! # let tx: solana_transaction::versioned::VersionedTransaction = unimplemented!();

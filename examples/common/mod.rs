@@ -18,9 +18,9 @@
 use std::str::FromStr;
 use std::time::Duration;
 
-use apex_sender_client::prelude::*;
-use apex_sender_client::rpc::{RpcClient, SolanaRpc};
-use apex_sender_client::tip;
+use orbitflare_apex::prelude::*;
+use orbitflare_apex::rpc::{RpcClient, SolanaRpc};
+use orbitflare_apex::tip;
 
 pub const MEMO_PROGRAM: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 
@@ -142,7 +142,7 @@ impl Setup {
             let tx = VersionedTransaction::try_new(VersionedMessage::V1(msg), &[&self.payer])?;
             println!(
                 "built a v1 transaction of {} bytes",
-                apex_sender_client::serialize_transaction(&tx)?.len()
+                orbitflare_apex::serialize_transaction(&tx)?.len()
             );
             return Ok(tx);
         }

@@ -1,4 +1,4 @@
-# apex-sender-client
+# orbitflare-apex
 
 Submit Solana transactions to OrbitFlare's Apex endpoints. One tip, three
 transports, and the endpoint races every transaction to the leaders through
@@ -24,12 +24,12 @@ the transaction lands. No landing, no cost.
 
 ```toml
 [dependencies]
-apex-sender-client = { version = "0.1", features = ["rpc"] }
+orbitflare-apex = { version = "0.1", features = ["rpc"] }
 ```
 
 ```rust
-use apex_sender_client::{ApexSenderClient, Region, MIN_TIP_LAMPORTS, tip, tip_instruction};
-use apex_sender_client::rpc::{RpcClient, SolanaRpc};
+use orbitflare_apex::{ApexSenderClient, Region, MIN_TIP_LAMPORTS, tip, tip_instruction};
+use orbitflare_apex::rpc::{RpcClient, SolanaRpc};
 
 let client = ApexSenderClient::connect(Region::Frankfurt, &api_key).await?;
 let tip_accounts = RpcClient::new(Region::Frankfurt, &api_key).get_tip_accounts().await?;

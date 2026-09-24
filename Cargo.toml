@@ -1,5 +1,5 @@
 [package]
-name = "apex-sender-client"
+name = "orbitflare-apex"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.92"
@@ -7,7 +7,7 @@ authors = ["OrbitFlare"]
 license = "Apache-2.0"
 description = "Submit Solana transactions to OrbitFlare apex-sender over QUIC"
 homepage = "https://orbitflare.com"
-repository = "https://github.com/orbitflare/apex-sender-client"
+repository = "https://github.com/orbitflare/orbitflare-apex-client"
 keywords = ["solana", "quic", "transaction", "sender", "orbitflare"]
 categories = ["network-programming", "cryptography::cryptocurrencies"]
 readme = "README.md"
