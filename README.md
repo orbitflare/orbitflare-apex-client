@@ -183,8 +183,9 @@ both.
 order, all or nothing. Exactly one of them carries the tip, at or above your
 floor; that tip minus the base fee becomes the bid. Bundles travel the
 block-engine path only, because the stake and TPU paths cannot keep a group
-atomic, so they land on Jito-enabled leaders. Each member is limited to 1232
-bytes. The endpoint resubmits until the bundle lands or the first
+atomic, so they land on Jito-enabled leaders. Each member takes the same
+size as a single transaction: up to 4096 bytes as v1, 1232 as legacy or v0.
+The endpoint resubmits until the bundle lands or the first
 transaction's blockhash expires; `bundle_statuses` reports Pending, Landed
 with the slot, Failed or Invalid. JSON-RPC `sendBundle` and
 `getInflightBundleStatuses` take Jito's parameter shapes, so existing bundle

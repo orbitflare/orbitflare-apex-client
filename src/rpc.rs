@@ -244,7 +244,9 @@ pub struct BundleStatus {
     pub landed_slot: Option<u64>,
 }
 
-/// Up to this many transactions per bundle, each at most 1232 bytes.
+/// Up to this many transactions per bundle. Each is held to the same size
+/// as a single transaction: a v1 member up to 4096 bytes, legacy and v0 up
+/// to 1232 (the endpoint enforces the second).
 pub const MAX_BUNDLE: usize = 4;
 
 impl RpcClient {
@@ -256,7 +258,9 @@ impl RpcClient {
     pub async fn send_bundle(&self, wires: &[&[u8]]) -> Result<BundleAccepted, RpcError> {
         if wires.is_empty()
             || wires.len() > MAX_BUNDLE
-            || wires.iter().any(|w| w.is_empty() || w.len() > 1232)
+            || wires
+                .iter()
+                .any(|w| w.is_empty() || w.len() > crate::wire::MAX_TRANSACTION_SIZE)
         {
             return Err(RpcError::BadResponse);
         }
