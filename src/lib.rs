@@ -195,6 +195,18 @@ pub enum ConnectionHealth {
 /// backs off while the endpoint keeps refusing it.
 const WATCHDOG_TICK: Duration = Duration::from_millis(250);
 const WATCHDOG_MAX_BACKOFF: Duration = Duration::from_secs(30);
+/// How long a reconnect waits for the host to be looked up again before
+/// using the address it already has.
+const RESOLVE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The first address of the same IP family as `current`: the client's
+/// socket was bound for that family, and cannot dial the other.
+fn same_family(
+    found: impl IntoIterator<Item = SocketAddr>,
+    current: SocketAddr,
+) -> Option<SocketAddr> {
+    found.into_iter().find(|a| a.is_ipv4() == current.is_ipv4())
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientOptions {
@@ -245,7 +257,12 @@ pub struct ApexSenderClient {
 #[doc(hidden)]
 pub struct Inner {
     endpoint: Endpoint,
-    remote: SocketAddr,
+    /// Where the connection goes now. A host name is looked up again on
+    /// every reconnect, so a client on `global.apex.orbitflare.com` follows
+    /// the load balancer to another endpoint when this one fails.
+    remote: std::sync::Mutex<SocketAddr>,
+    /// `host:port` as given, for that lookup; `None` for an IP address.
+    lookup: Option<String>,
     server_name: String,
     options: ClientOptions,
     connection: Mutex<Option<Connection>>,
@@ -304,6 +321,7 @@ impl ApexSenderClient {
         } else {
             host.to_owned()
         };
+        let lookup = (!is_ip).then(|| target.clone());
         let keypair = tls::derive_client_keypair(api_key);
         let endpoint = tls::build_endpoint(
             options.bind_addr.unwrap_or_else(|| match remote {
@@ -317,7 +335,8 @@ impl ApexSenderClient {
         let client = Self {
             inner: Arc::new(Inner {
                 endpoint,
-                remote,
+                remote: std::sync::Mutex::new(remote),
+                lookup,
                 server_name,
                 options,
                 connection: Mutex::new(None),
@@ -365,8 +384,10 @@ impl Inner {
         let resuming = guard.is_some();
         if resuming {
             self.reconnects.fetch_add(1, Ordering::Relaxed);
+            self.refresh_remote().await;
         }
-        let connecting = self.endpoint.connect(self.remote, &self.server_name)?;
+        let remote = self.remote_addr();
+        let connecting = self.endpoint.connect(remote, &self.server_name)?;
         // With a session ticket the connection is usable at once and the
         // first sends ride in the handshake's first flight (0-RTT).
         let conn = match connecting.into_0rtt() {
@@ -425,8 +446,27 @@ impl Inner {
         self.zero_rtt_resumptions.load(Ordering::Relaxed)
     }
 
-    pub const fn remote_addr(&self) -> SocketAddr {
-        self.remote
+    pub fn remote_addr(&self) -> SocketAddr {
+        *self.remote.lock().expect("remote address lock")
+    }
+
+    /// Look the host up again before a reconnect. Only on a reconnect, which
+    /// the background watchdog normally makes before a send needs it, so a
+    /// send does not wait on DNS. A failed or slow lookup keeps the address
+    /// already known: never worse off than not looking.
+    async fn refresh_remote(&self) {
+        let Some(target) = &self.lookup else { return };
+        let current = self.remote_addr();
+        let Ok(Ok(found)) =
+            tokio::time::timeout(RESOLVE_TIMEOUT, tokio::net::lookup_host(target.as_str())).await
+        else {
+            return;
+        };
+        if let Some(next) = same_family(found, current)
+            && next != current
+        {
+            *self.remote.lock().expect("remote address lock") = next;
+        }
     }
 
     /// Drop the current connection and open a new one.
@@ -630,5 +670,21 @@ mod tests {
             wire.len()
         );
         let _ = Message::new(&[], None);
+    }
+}
+
+#[cfg(test)]
+mod reresolve_tests {
+    use super::*;
+
+    #[test]
+    fn a_new_address_is_taken_only_in_the_family_the_socket_can_dial() {
+        let current: SocketAddr = "192.0.2.15:7001".parse().unwrap();
+        let v6: SocketAddr = "[2001:db8::5]:7001".parse().unwrap();
+        let moved: SocketAddr = "203.0.113.65:7001".parse().unwrap();
+
+        assert_eq!(same_family([v6, moved], current), Some(moved));
+        assert_eq!(same_family([v6], current), None);
+        assert_eq!(same_family(Vec::<SocketAddr>::new(), current), None);
     }
 }

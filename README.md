@@ -112,6 +112,13 @@ re-handshakes as soon as a drop is noticed, so the next send does not pay
 for it (`proactive_reconnect`, on by default). `health()`,
 `reconnects_total()` and `zero_rtt_resumptions_total()` show what happened.
 
+Each reconnect looks the host name up again, so a client on
+`Region::Global` follows the load balancer to the next nearest endpoint when
+its own one goes down, without a restart. The lookup happens in that
+background reconnect, not on a send, and if it fails or takes more than two
+seconds the client keeps the address it had. An IP address endpoint is never
+looked up.
+
 Over HTTP the key travels as the `x-api-key` header (or `?api-key=`), the
 endpoint checks a hash of it per request, and the connection stays open
 with HTTP keep-alive. `rpc::RpcClient::ping` warms it. The JSON-RPC path
