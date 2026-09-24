@@ -645,7 +645,10 @@ mod tests {
             assert_eq!(Region::parse(region.code()), Some(region));
         }
         assert_eq!(Region::parse("Dublin"), Some(Region::Dublin));
-        assert_eq!(Region::Dublin.quic_endpoint(), "dub.apex.orbitflare.com:7001");
+        assert_eq!(
+            Region::Dublin.quic_endpoint(),
+            "dub.apex.orbitflare.com:7001"
+        );
     }
 
     #[test]
