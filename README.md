@@ -1,8 +1,19 @@
+<p align="center">
+  <a href="https://apex.orbitflare.com"><img src="assets/apex-banner.png" alt="OrbitFlare Apex. Solana transactions, built to land." width="100%"></a>
+</p>
+
+<p align="center">
+  <a href="https://crates.io/crates/orbitflare-apex"><img src="https://img.shields.io/crates/v/orbitflare-apex?style=flat-square" alt="crates.io"></a>
+  <a href="https://docs.rs/orbitflare-apex"><img src="https://img.shields.io/docsrs/orbitflare-apex?style=flat-square" alt="docs.rs"></a>
+  <a href="https://apex.orbitflare.com"><img src="https://img.shields.io/badge/apex.orbitflare.com-website-informational?style=flat-square" alt="apex.orbitflare.com"></a>
+</p>
+
 # orbitflare-apex
 
-Submit Solana transactions to OrbitFlare's Apex endpoints. One tip, three
-transports, and the endpoint races every transaction to the leaders through
-stake-weighted validator clients, Jito bundles and the leader TPUs at once.
+The official Rust client for [OrbitFlare Apex](https://apex.orbitflare.com),
+the Solana transaction landing service. One tip, three transports, and the
+endpoint races every transaction to the leaders through stake-weighted
+validator clients, Jito bundles and the leader TPUs at once.
 
 - **QUIC**: one persistent connection per endpoint, a client certificate
   derived from your API key (the key itself never crosses the wire), one
@@ -284,7 +295,7 @@ any RPC.
 
 ## Other languages
 
-the Apex docs at https://docs.orbitflare.com/apex specifies the QUIC transport, the client certificate
+The Apex docs at https://docs.orbitflare.com/apex specify the QUIC transport, the client certificate
 derivation (with a test vector) and the packet and admission frames; the
 Rust crate is the reference implementation. The JSON-RPC path needs no
 library at all, see `examples/typescript/`.
