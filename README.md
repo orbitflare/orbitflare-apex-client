@@ -117,6 +117,13 @@ yours from then on. The connection stays open with a QUIC PING every
 second (the endpoint's idle timeout is 30 s), so a send is one stream open
 and one write on a warm connection, a few microseconds of client time.
 
+From 0.1.2 the client also asks the endpoint to acknowledge every packet
+as it arrives. QUIC otherwise holds the acknowledgement of a lone packet,
+which is what one transaction is, for up to 25 ms. The endpoint forwards a
+transaction on arrival either way; the request only brings the
+acknowledgement back sooner, so a lost packet is resent sooner and timing a
+stream until it is acknowledged reads the real round trip.
+
 If the connection drops, the client reconnects with a session ticket and
 sends the waiting transaction in the handshake's first flight (0-RTT), and
 resends it if the endpoint declines the early data. A background task
